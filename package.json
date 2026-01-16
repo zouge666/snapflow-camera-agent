@@ -1,0 +1,16 @@
+{
+  "name": "snapflow-camera-agent",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=24.18.0 <25",
+    "pnpm": "11.13.1"
+  },
+  "scripts": {
+    "test": "pnpm run test:fixtures",
+    "test:fixtures": "pnpm run test:fixtures:schema && pnpm run test:fixtures:semantic",
+    "test:fixtures:schema": "python3 -B tests/fixtures/check_schema.py",
+    "test:fixtures:semantic": "node tests/fixtures/check-fixtures.mjs"
+  }
+}
