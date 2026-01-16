@@ -9,13 +9,22 @@
     "pnpm": "11.13.1"
   },
   "scripts": {
+    "build": "pnpm run build:web",
     "build:web": "pnpm --filter @snapflow/web build",
-    "dev:web": "pnpm --filter @snapflow/web dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:api": ".venv/bin/python -m uvicorn snapflow.main:create_app --factory --reload --host 0.0.0.0 --port 8000",
+    "dev:web": "pnpm --filter @snapflow/web dev --hostname 0.0.0.0",
+    "dev:web:https": "pnpm --filter @snapflow/web dev --hostname 0.0.0.0 --experimental-https --experimental-https-key ../../tmp/certs/localhost-key.pem --experimental-https-cert ../../tmp/certs/localhost.pem",
+    "format": "node scripts/format.mjs",
+    "setup": "node scripts/setup.mjs",
     "start:web": "pnpm --filter @snapflow/web start",
-    "test": "pnpm run test:fixtures",
+    "test": "pnpm run test:scripts && pnpm run test:fixtures && pnpm run test:api",
+    "test:api": ".venv/bin/python -m pytest apps/api/tests",
     "test:fixtures": "pnpm run test:fixtures:schema && pnpm run test:fixtures:semantic",
-    "test:fixtures:schema": "python3 -B tests/fixtures/check_schema.py",
+    "test:fixtures:schema": ".venv/bin/python -B tests/fixtures/check_schema.py",
     "test:fixtures:semantic": "node tests/fixtures/check-fixtures.mjs",
+    "test:scripts": "node --test scripts/tests/*.test.mjs",
+    "typecheck": "pnpm run typecheck:web",
     "typecheck:web": "pnpm --filter @snapflow/web typecheck"
   }
 }
