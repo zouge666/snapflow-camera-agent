@@ -3,7 +3,10 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 DOMAIN_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "domain"
+pytestmark = pytest.mark.unit
 
 
 def test_domain_does_not_import_fastapi() -> None:
