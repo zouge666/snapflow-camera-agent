@@ -9,9 +9,13 @@
     "pnpm": "11.13.1"
   },
   "scripts": {
+    "build:web": "pnpm --filter @snapflow/web build",
+    "dev:web": "pnpm --filter @snapflow/web dev",
+    "start:web": "pnpm --filter @snapflow/web start",
     "test": "pnpm run test:fixtures",
     "test:fixtures": "pnpm run test:fixtures:schema && pnpm run test:fixtures:semantic",
     "test:fixtures:schema": "python3 -B tests/fixtures/check_schema.py",
-    "test:fixtures:semantic": "node tests/fixtures/check-fixtures.mjs"
+    "test:fixtures:semantic": "node tests/fixtures/check-fixtures.mjs",
+    "typecheck:web": "pnpm --filter @snapflow/web typecheck"
   }
 }

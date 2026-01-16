@@ -15,4 +15,12 @@ pnpm install --frozen-lockfile
 ```bash
 source .venv/bin/activate
 pnpm test
+pnpm typecheck:web
+pnpm build:web
+```
+
+## Web
+
+```bash
+pnpm dev:web
 ```
