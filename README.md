@@ -15,6 +15,7 @@ pnpm install --frozen-lockfile
 ```bash
 source .venv/bin/activate
 pnpm test
+python -m pytest apps/api/tests
 pnpm typecheck:web
 pnpm build:web
 ```
@@ -23,4 +24,11 @@ pnpm build:web
 
 ```bash
 pnpm dev:web
+```
+
+## API
+
+```bash
+source .venv/bin/activate
+python -m uvicorn snapflow.main:create_app --factory --reload --port 8000
 ```
