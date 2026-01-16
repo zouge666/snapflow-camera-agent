@@ -15,8 +15,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+  "coverage==7.15.2",
   "httpx2==2.7.0",
+  "mypy==2.3.0",
   "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.15.22",
 ]
 
 [tool.setuptools.packages.find]
@@ -24,4 +28,39 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
+markers = [
+  "integration: exercises app composition or an HTTP boundary",
+  "unit: runs without HTTP, database, or provider boundaries",
+]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["snapflow"]
+
+[tool.coverage.report]
+fail_under = 90
+precision = 1
+show_missing = true
+
+[tool.mypy]
+python_version = "3.13"
+pretty = true
+show_error_codes = true
+strict = true
+warn_unreachable = true
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py313"
+
+[tool.ruff.lint]
+ignore = []
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.ruff.format]
+docstring-code-format = true
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"

@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from snapflow.config import Settings
 from snapflow.main import create_app
 
+pytestmark = pytest.mark.integration
+
 
 def test_app_starts_with_mock_settings() -> None:
     app = create_app(Settings(app_env="test", model_provider="mock"))

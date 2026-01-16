@@ -1,2 +1,4 @@
+--index-url https://pypi.org/simple
+
 jsonschema==4.23.0
 -e ./apps/api[test]
