@@ -16,6 +16,7 @@
 
 ```bash
 ./scripts/pnpmw test
+./scripts/pnpmw lint
 ./scripts/pnpmw typecheck
 ./scripts/pnpmw build
 ```
@@ -24,6 +25,7 @@
 
 ```bash
 ./scripts/pnpmw format
+./scripts/pnpmw format:check
 ```
 
 ## Web
