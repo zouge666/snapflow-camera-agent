@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "id": "text-holdout-mixed-language-001",
+  "kind": "text",
+  "split": "holdout",
+  "languages": ["en", "zh-CN"],
+  "scenario_tags": ["clear-text", "mixed-language", "multiple-actions", "missing-optional-date"],
+  "source": {
+    "provenance": "synthetic",
+    "creator": "SnapFlow fixture set",
+    "license": "CC0-1.0",
+    "source_url": null,
+    "created_at": "2026-07-16",
+    "contains_personal_data": false,
+    "contains_confidential_data": false
+  },
+  "input": {
+    "text": "Release 讨论\nNora prepares the demo build by 2026-07-24.\n测试负责人检查中文提示，但没有写截止日期。",
+    "locale": "en-US",
+    "timezone": "Europe/Copenhagen",
+    "reference_date": "2026-07-16"
+  },
+  "gold": {
+    "expected_action_count": 2,
+    "actions": [
+      {
+        "id": "action-1",
+        "title": "Prepare the demo build",
+        "owner": "Nora",
+        "due": {
+          "iso_date": "2026-07-24",
+          "raw_text": "by 2026-07-24",
+          "resolution": "absolute"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Nora prepares the demo build by 2026-07-24.",
+            "start": 11,
+            "end": 54
+          }
+        ]
+      },
+      {
+        "id": "action-2",
+        "title": "检查中文提示",
+        "owner": "测试负责人",
+        "due": null,
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "测试负责人检查中文提示，但没有写截止日期。",
+            "start": 55,
+            "end": 76
+          }
+        ]
+      }
+    ],
+    "clarifications": [],
+    "forbidden_actions": [],
+    "notes": "The second action has a role owner and no due date; do not invent one."
+  }
+}

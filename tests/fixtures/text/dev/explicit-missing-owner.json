@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "id": "text-dev-missing-owner-001",
+  "kind": "text",
+  "split": "dev",
+  "languages": ["en"],
+  "scenario_tags": ["clear-text", "single-action", "explicit-unknown-owner", "missing-date"],
+  "source": {
+    "provenance": "synthetic",
+    "creator": "SnapFlow fixture set",
+    "license": "CC0-1.0",
+    "source_url": null,
+    "created_at": "2026-07-16",
+    "contains_personal_data": false,
+    "contains_confidential_data": false
+  },
+  "input": {
+    "text": "Website review\nUpdate the footer links before the next demo.\nOwner: TBD.",
+    "locale": "en-US",
+    "timezone": "Europe/Copenhagen",
+    "reference_date": "2026-07-16"
+  },
+  "gold": {
+    "expected_action_count": 1,
+    "actions": [
+      {
+        "id": "action-1",
+        "title": "Update the footer links",
+        "owner": null,
+        "due": null,
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Update the footer links before the next demo.",
+            "start": 15,
+            "end": 60
+          }
+        ]
+      }
+    ],
+    "clarifications": [
+      {
+        "field_path": "actions[0].owner",
+        "reason": "The note explicitly marks the owner as unresolved.",
+        "question_should_include": ["owner", "footer links"],
+        "evidence": {
+          "quote": "Owner: TBD.",
+          "start": 61,
+          "end": 72
+        }
+      }
+    ],
+    "forbidden_actions": [],
+    "notes": "Ask about the explicit TBD owner; do not invent a person or a date."
+  }
+}

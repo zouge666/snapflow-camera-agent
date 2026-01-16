@@ -1,0 +1,310 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://snapflow.local/schemas/fixture-manifest-v1.json",
+  "title": "SnapFlow evaluation fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "kind",
+    "split",
+    "languages",
+    "scenario_tags",
+    "source",
+    "input",
+    "gold"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 8,
+      "maxLength": 96
+    },
+    "kind": {
+      "const": "text"
+    },
+    "split": {
+      "enum": ["dev", "holdout"]
+    },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+      }
+    },
+    "scenario_tags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+      }
+    },
+    "source": {
+      "$ref": "#/definitions/source"
+    },
+    "input": {
+      "$ref": "#/definitions/input"
+    },
+    "gold": {
+      "$ref": "#/definitions/gold"
+    }
+  },
+  "definitions": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "creator",
+        "license",
+        "source_url",
+        "created_at",
+        "contains_personal_data",
+        "contains_confidential_data"
+      ],
+      "properties": {
+        "provenance": {
+          "enum": ["synthetic", "licensed"]
+        },
+        "creator": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "license": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80
+        },
+        "source_url": {
+          "type": ["string", "null"],
+          "format": "uri"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "contains_personal_data": {
+          "const": false
+        },
+        "contains_confidential_data": {
+          "const": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "provenance": {
+                "const": "licensed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source_url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "locale", "timezone", "reference_date"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "locale": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+        },
+        "timezone": {
+          "type": "string",
+          "pattern": "^[A-Za-z_]+(?:/[A-Za-z_+-]+)+$"
+        },
+        "reference_date": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "gold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_action_count",
+        "actions",
+        "clarifications",
+        "forbidden_actions",
+        "notes"
+      ],
+      "properties": {
+        "expected_action_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/definitions/action"
+          }
+        },
+        "clarifications": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/definitions/clarification"
+          }
+        },
+        "forbidden_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 240
+          }
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "owner", "due", "priority", "evidence"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^action-[1-9][0-9]*$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 240
+        },
+        "owner": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "due": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/due"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priority": {
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/definitions/evidence"
+          }
+        }
+      }
+    },
+    "due": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["iso_date", "raw_text", "resolution"],
+      "properties": {
+        "iso_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "raw_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "resolution": {
+          "enum": ["absolute", "relative", "ambiguous"]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quote", "start", "end"],
+      "properties": {
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "clarification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field_path", "reason", "question_should_include", "evidence"],
+      "properties": {
+        "field_path": {
+          "type": "string",
+          "pattern": "^actions\\[[0-9]+\\]\\.[a-z_]+$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 240
+        },
+        "question_should_include": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "evidence": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

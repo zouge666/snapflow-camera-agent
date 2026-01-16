@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "id": "text-dev-clear-english-001",
+  "kind": "text",
+  "split": "dev",
+  "languages": ["en"],
+  "scenario_tags": ["clear-text", "multiple-actions", "absolute-dates", "explicit-owners"],
+  "source": {
+    "provenance": "synthetic",
+    "creator": "SnapFlow fixture set",
+    "license": "CC0-1.0",
+    "source_url": null,
+    "created_at": "2026-07-16",
+    "contains_personal_data": false,
+    "contains_confidential_data": false
+  },
+  "input": {
+    "text": "Project Lantern sync\nMaya will prepare the launch checklist by 2026-07-20.\nJonas will review the accessibility notes by 2026-07-21.",
+    "locale": "en-US",
+    "timezone": "Europe/Copenhagen",
+    "reference_date": "2026-07-16"
+  },
+  "gold": {
+    "expected_action_count": 2,
+    "actions": [
+      {
+        "id": "action-1",
+        "title": "Prepare the launch checklist",
+        "owner": "Maya",
+        "due": {
+          "iso_date": "2026-07-20",
+          "raw_text": "by 2026-07-20",
+          "resolution": "absolute"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Maya will prepare the launch checklist by 2026-07-20.",
+            "start": 21,
+            "end": 74
+          }
+        ]
+      },
+      {
+        "id": "action-2",
+        "title": "Review the accessibility notes",
+        "owner": "Jonas",
+        "due": {
+          "iso_date": "2026-07-21",
+          "raw_text": "by 2026-07-21",
+          "resolution": "absolute"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Jonas will review the accessibility notes by 2026-07-21.",
+            "start": 75,
+            "end": 131
+          }
+        ]
+      }
+    ],
+    "clarifications": [],
+    "forbidden_actions": [],
+    "notes": "Both actions have explicit owners, evidence, and absolute due dates."
+  }
+}

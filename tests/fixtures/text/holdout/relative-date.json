@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "id": "text-holdout-relative-date-001",
+  "kind": "text",
+  "split": "holdout",
+  "languages": ["en"],
+  "scenario_tags": ["clear-text", "single-action", "relative-date", "explicit-owner"],
+  "source": {
+    "provenance": "synthetic",
+    "creator": "SnapFlow fixture set",
+    "license": "CC0-1.0",
+    "source_url": null,
+    "created_at": "2026-07-16",
+    "contains_personal_data": false,
+    "contains_confidential_data": false
+  },
+  "input": {
+    "text": "Planning notes\nAlex will send the revised agenda on Friday.\nReference date: 2026-07-16.",
+    "locale": "en-US",
+    "timezone": "Europe/Copenhagen",
+    "reference_date": "2026-07-16"
+  },
+  "gold": {
+    "expected_action_count": 1,
+    "actions": [
+      {
+        "id": "action-1",
+        "title": "Send the revised agenda",
+        "owner": "Alex",
+        "due": {
+          "iso_date": "2026-07-17",
+          "raw_text": "on Friday",
+          "resolution": "relative"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Alex will send the revised agenda on Friday.",
+            "start": 15,
+            "end": 59
+          }
+        ]
+      }
+    ],
+    "clarifications": [],
+    "forbidden_actions": [],
+    "notes": "Friday resolves to 2026-07-17 using the supplied locale, timezone, and reference date."
+  }
+}
