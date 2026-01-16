@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools==83.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snapflow-api"
+version = "0.0.0"
+description = "SnapFlow API"
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+dependencies = [
+  "fastapi==0.139.1",
+  "uvicorn==0.51.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx2==2.7.0",
+  "pytest==9.1.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
