@@ -39,3 +39,11 @@
 ```bash
 ./scripts/pnpmw dev:api
 ```
+
+## Containers
+
+```bash
+docker compose config --quiet
+docker compose up --build --wait
+docker compose down
+```
