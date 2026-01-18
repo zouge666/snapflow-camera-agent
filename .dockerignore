@@ -1,0 +1,6 @@
+**
+!apps/
+!apps/api/
+!apps/api/pyproject.toml
+!apps/api/src/
+!apps/api/src/**
