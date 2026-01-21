@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "id": "image-dev-northstar-planning-001",
+  "kind": "image",
+  "split": "dev",
+  "languages": ["en"],
+  "scenario_tags": [
+    "clear-image",
+    "multiple-actions",
+    "relative-date",
+    "missing-owner",
+    "ambiguous-date",
+    "synthetic-demo"
+  ],
+  "source": {
+    "provenance": "synthetic",
+    "creator": "SnapFlow fixture set",
+    "license": "CC0-1.0",
+    "source_url": null,
+    "fixture_date": "2026-01-18",
+    "contains_personal_data": false,
+    "contains_confidential_data": false
+  },
+  "artifacts": {
+    "image": {
+      "public_path": "/samples/northstar-planning/meeting-notes.png",
+      "repository_path": "apps/web/public/samples/northstar-planning/meeting-notes.png",
+      "media_type": "image/png",
+      "width": 1600,
+      "height": 1000,
+      "sha256": "a63d311b09c283a75aa3a4be4fd7902d05d29f49a0d77265b31e4adb55be5d98",
+      "alt_text": "Synthetic Northstar weekly planning board with three fictional follow-up actions."
+    },
+    "transcript": {
+      "public_path": "/samples/northstar-planning/transcript.txt",
+      "repository_path": "apps/web/public/samples/northstar-planning/transcript.txt",
+      "media_type": "text/plain; charset=utf-8",
+      "sha256": "634899632a3da2ccf6cd781c9712a0925f1853a6d302771a8e6ba1cf0b5c46a0"
+    },
+    "source_design": {
+      "public_path": "/samples/northstar-planning/meeting-notes.svg",
+      "repository_path": "apps/web/public/samples/northstar-planning/meeting-notes.svg",
+      "media_type": "image/svg+xml",
+      "sha256": "5ca60308a477ef79062485ca57a34f46b578f099db27e4455a5b8c90503ad744"
+    },
+    "attribution": {
+      "public_path": "/samples/northstar-planning/SOURCE.md",
+      "repository_path": "apps/web/public/samples/northstar-planning/SOURCE.md",
+      "media_type": "text/markdown; charset=utf-8",
+      "sha256": "522e35564e3dcc2205a3ef518b11c076ea2de15292d7e280f2893484b0532373"
+    }
+  },
+  "input": {
+    "text": "Northstar weekly planning\nReference date: 2026-01-15\n\nAlex: Send the revised onboarding checklist by Friday.\nPrepare the support FAQ before the pilot review.\nMina: Book a 30-minute pilot review on 2026-01-22.\n\nNotes:\nPilot group: 8 people\nKeep the first session to 30 minutes",
+    "locale": "en-US",
+    "timezone": "Europe/Copenhagen",
+    "reference_date": "2026-01-15"
+  },
+  "gold": {
+    "expected_action_count": 3,
+    "actions": [
+      {
+        "id": "action-1",
+        "title": "Send the revised onboarding checklist",
+        "owner": "Alex",
+        "due": {
+          "iso_date": "2026-01-16",
+          "raw_text": "by Friday",
+          "resolution": "relative"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Alex: Send the revised onboarding checklist by Friday.",
+            "start": 54,
+            "end": 108
+          }
+        ]
+      },
+      {
+        "id": "action-2",
+        "title": "Prepare the support FAQ",
+        "owner": null,
+        "due": {
+          "iso_date": null,
+          "raw_text": "before the pilot review",
+          "resolution": "ambiguous"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Prepare the support FAQ before the pilot review.",
+            "start": 109,
+            "end": 157
+          }
+        ]
+      },
+      {
+        "id": "action-3",
+        "title": "Book a 30-minute pilot review",
+        "owner": "Mina",
+        "due": {
+          "iso_date": "2026-01-22",
+          "raw_text": "on 2026-01-22",
+          "resolution": "absolute"
+        },
+        "priority": "unknown",
+        "evidence": [
+          {
+            "quote": "Mina: Book a 30-minute pilot review on 2026-01-22.",
+            "start": 158,
+            "end": 208
+          }
+        ]
+      }
+    ],
+    "clarifications": [
+      {
+        "field_path": "actions[1].due",
+        "reason": "The pilot review deadline cannot be resolved to an ISO date from this text alone.",
+        "question_should_include": ["pilot review", "date"],
+        "evidence": {
+          "quote": "before the pilot review",
+          "start": 133,
+          "end": 156
+        }
+      }
+    ],
+    "forbidden_actions": [
+      "Invite eight people to the pilot",
+      "Keep the first session to 30 minutes"
+    ],
+    "notes": "Friday resolves to 2026-01-16 from the supplied reference date. The support FAQ intentionally has no owner, and its due phrase remains ambiguous."
+  }
+}
