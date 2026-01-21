@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const fixtureRoot = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = resolve(fixtureRoot, "..", "..");
 const textRoot = join(fixtureRoot, "text");
+const webPublicRoot = join(repositoryRoot, "apps", "web", "public");
+const sampleRoot = join(webPublicRoot, "samples");
 const forbiddenSensitiveMarkers = ["confidential:", "customer id:", "incident id:", "api key:"];
 
 async function listJsonFiles(directory) {
@@ -19,7 +23,7 @@ async function listJsonFiles(directory) {
 }
 
 function fail(filePath, message) {
-  throw new Error(`${relative(fixtureRoot, filePath)}: ${message}`);
+  throw new Error(`${relative(repositoryRoot, filePath)}: ${message}`);
 }
 
 function checkEvidence(filePath, text, evidence, location) {
@@ -36,10 +40,127 @@ function checkEvidence(filePath, text, evidence, location) {
   }
 }
 
-const files = await listJsonFiles(textRoot);
-if (files.length < 6) {
-  throw new Error(`Expected at least 6 fixtures, found ${files.length}`);
+function isInside(directory, filePath) {
+  return resolve(filePath).startsWith(`${resolve(directory)}${sep}`);
 }
+
+function toPublicPath(filePath) {
+  return `/${relative(webPublicRoot, filePath).split(sep).join("/")}`;
+}
+
+async function checkArtifact(manifestPath, name, artifact) {
+  const artifactPath = resolve(repositoryRoot, artifact.repository_path);
+  if (!isInside(sampleRoot, artifactPath)) {
+    fail(manifestPath, `artifacts.${name}.repository_path leaves the public sample directory`);
+  }
+
+  const expectedPublicPath = toPublicPath(artifactPath);
+  if (artifact.public_path !== expectedPublicPath) {
+    fail(
+      manifestPath,
+      `artifacts.${name}.public_path is ${artifact.public_path}, expected ${expectedPublicPath}`,
+    );
+  }
+
+  let content;
+  try {
+    content = await readFile(artifactPath);
+  } catch (error) {
+    fail(manifestPath, `artifacts.${name} cannot be read: ${error.message}`);
+  }
+
+  const actualHash = createHash("sha256").update(content).digest("hex");
+  if (actualHash !== artifact.sha256) {
+    fail(
+      manifestPath,
+      `artifacts.${name} SHA-256 is ${actualHash}, expected ${artifact.sha256}`,
+    );
+  }
+
+  return { content, path: artifactPath };
+}
+
+async function checkImageFixture(filePath, fixture) {
+  const requiredTags = ["synthetic-demo", "relative-date", "missing-owner"];
+  for (const tag of requiredTags) {
+    if (!fixture.scenario_tags.includes(tag)) {
+      fail(filePath, `image fixture is missing required scenario tag ${tag}`);
+    }
+  }
+
+  if (!fixture.gold.actions.some((action) => action.owner === null)) {
+    fail(filePath, "image fixture must include an action with a missing owner");
+  }
+  if (!fixture.gold.actions.some((action) => action.due?.resolution === "relative")) {
+    fail(filePath, "image fixture must include a relative date");
+  }
+
+  const artifacts = {};
+  for (const [name, artifact] of Object.entries(fixture.artifacts)) {
+    artifacts[name] = await checkArtifact(filePath, name, artifact);
+  }
+
+  const png = artifacts.image.content;
+  const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  if (png.length < 24 || !png.subarray(0, 8).equals(pngSignature)) {
+    fail(filePath, "artifacts.image is not a valid PNG header");
+  }
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (width !== fixture.artifacts.image.width || height !== fixture.artifacts.image.height) {
+    fail(
+      filePath,
+      `artifacts.image dimensions are ${width}x${height}, expected ${fixture.artifacts.image.width}x${fixture.artifacts.image.height}`,
+    );
+  }
+
+  const transcript = artifacts.transcript.content
+    .toString("utf8")
+    .replaceAll("\r\n", "\n")
+    .replace(/\n$/, "");
+  if (transcript !== fixture.input.text) {
+    fail(filePath, "artifacts.transcript does not match input.text");
+  }
+
+  const sourceDesign = artifacts.source_design.content.toString("utf8");
+  const forbiddenSourcePatterns = [
+    [/<image\b/i, "embedded image"],
+    [/<script\b/i, "script"],
+    [/<foreignObject\b/i, "foreignObject"],
+    [/@font-face/i, "embedded font"],
+    [/(?:href|xlink:href)\s*=/i, "external reference"],
+    [/url\(\s*["']?https?:/i, "remote URL"],
+  ];
+  for (const [pattern, label] of forbiddenSourcePatterns) {
+    if (pattern.test(sourceDesign)) {
+      fail(filePath, `artifacts.source_design contains a forbidden ${label}`);
+    }
+  }
+  for (const action of fixture.gold.actions) {
+    for (const evidence of action.evidence) {
+      if (!sourceDesign.includes(evidence.quote)) {
+        fail(filePath, `source design does not contain action evidence ${JSON.stringify(evidence.quote)}`);
+      }
+    }
+  }
+
+  const attribution = artifacts.attribution.content.toString("utf8");
+  for (const marker of [fixture.id, fixture.source.license, "synthetic", "Source URL: none"]) {
+    if (!attribution.includes(marker)) {
+      fail(filePath, `attribution is missing ${JSON.stringify(marker)}`);
+    }
+  }
+}
+
+const textFiles = await listJsonFiles(textRoot);
+const sampleFiles = (await listJsonFiles(sampleRoot)).filter((filePath) => filePath.endsWith("manifest.json"));
+if (textFiles.length < 6) {
+  throw new Error(`Expected at least 6 text fixtures, found ${textFiles.length}`);
+}
+if (sampleFiles.length < 1) {
+  throw new Error("Expected at least one public sample manifest");
+}
+const files = [...textFiles, ...sampleFiles];
 
 const fixtureIds = new Set();
 const splitCounts = new Map();
@@ -105,6 +226,10 @@ for (const filePath of files) {
       fail(filePath, `forbidden action is also present in gold actions: ${forbiddenAction}`);
     }
   }
+
+  if (fixture.kind === "image") {
+    await checkImageFixture(filePath, fixture);
+  }
 }
 
 for (const expectedSplit of ["dev", "holdout"]) {
@@ -114,5 +239,5 @@ for (const expectedSplit of ["dev", "holdout"]) {
 }
 
 console.log(
-  `Semantic fixture checks passed: ${files.length} fixtures (${splitCounts.get("dev")} dev, ${splitCounts.get("holdout")} holdout)`,
+  `Semantic fixture checks passed: ${files.length} fixtures (${textFiles.length} text, ${sampleFiles.length} public sample; ${splitCounts.get("dev")} dev, ${splitCounts.get("holdout")} holdout)`,
 );

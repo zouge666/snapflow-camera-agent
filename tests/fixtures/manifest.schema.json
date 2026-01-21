@@ -26,7 +26,7 @@
       "maxLength": 96
     },
     "kind": {
-      "const": "text"
+      "enum": ["text", "image"]
     },
     "split": {
       "enum": ["dev", "holdout"]
@@ -57,9 +57,157 @@
     },
     "gold": {
       "$ref": "#/definitions/gold"
+    },
+    "artifacts": {
+      "$ref": "#/definitions/artifacts"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "image"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["artifacts"]
+      }
+    }
+  ],
   "definitions": {
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "transcript", "source_design", "attribution"],
+      "properties": {
+        "image": {
+          "$ref": "#/definitions/imageArtifact"
+        },
+        "transcript": {
+          "$ref": "#/definitions/transcriptArtifact"
+        },
+        "source_design": {
+          "$ref": "#/definitions/sourceDesignArtifact"
+        },
+        "attribution": {
+          "$ref": "#/definitions/attributionArtifact"
+        }
+      }
+    },
+    "imageArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "public_path",
+        "repository_path",
+        "media_type",
+        "width",
+        "height",
+        "sha256",
+        "alt_text"
+      ],
+      "properties": {
+        "public_path": {
+          "type": "string",
+          "pattern": "^/samples/[A-Za-z0-9._/-]+\\.png$"
+        },
+        "repository_path": {
+          "type": "string",
+          "pattern": "^apps/web/public/samples/[A-Za-z0-9._/-]+\\.png$"
+        },
+        "media_type": {
+          "const": "image/png"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 4096
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 4096
+        },
+        "sha256": {
+          "$ref": "#/definitions/sha256"
+        },
+        "alt_text": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 240
+        }
+      }
+    },
+    "transcriptArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_path", "repository_path", "media_type", "sha256"],
+      "properties": {
+        "public_path": {
+          "type": "string",
+          "pattern": "^/samples/[A-Za-z0-9._/-]+\\.txt$"
+        },
+        "repository_path": {
+          "type": "string",
+          "pattern": "^apps/web/public/samples/[A-Za-z0-9._/-]+\\.txt$"
+        },
+        "media_type": {
+          "const": "text/plain; charset=utf-8"
+        },
+        "sha256": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "sourceDesignArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_path", "repository_path", "media_type", "sha256"],
+      "properties": {
+        "public_path": {
+          "type": "string",
+          "pattern": "^/samples/[A-Za-z0-9._/-]+\\.svg$"
+        },
+        "repository_path": {
+          "type": "string",
+          "pattern": "^apps/web/public/samples/[A-Za-z0-9._/-]+\\.svg$"
+        },
+        "media_type": {
+          "const": "image/svg+xml"
+        },
+        "sha256": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "attributionArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_path", "repository_path", "media_type", "sha256"],
+      "properties": {
+        "public_path": {
+          "type": "string",
+          "pattern": "^/samples/[A-Za-z0-9._/-]+\\.md$"
+        },
+        "repository_path": {
+          "type": "string",
+          "pattern": "^apps/web/public/samples/[A-Za-z0-9._/-]+\\.md$"
+        },
+        "media_type": {
+          "const": "text/markdown; charset=utf-8"
+        },
+        "sha256": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "source": {
       "type": "object",
       "additionalProperties": false,
