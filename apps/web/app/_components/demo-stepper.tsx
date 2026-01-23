@@ -1,7 +1,7 @@
 const steps = [
   { label: "Capture", detail: "Add your notes" },
   { label: "Review text", detail: "Correct the transcript" },
-  { label: "Review actions", detail: "Approve each item" },
+  { label: "Review actions", detail: "Inspect each candidate" },
   { label: "Export", detail: "Download approved work" },
 ] as const;
 

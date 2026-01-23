@@ -13,11 +13,19 @@ import type { ReviewSample } from "./sample-review";
 
 type ReviewTextFormProps = Readonly<{
   sample: ReviewSample;
+  isBuilding?: boolean;
+  onBuildPlan?: (fields: ReviewTextFields) => void;
+  onReviewChange?: () => void;
 }>;
 
 const fieldErrorId = (field: keyof ReviewTextFields) => `${field}-error`;
 
-export function ReviewTextForm({ sample }: ReviewTextFormProps) {
+export function ReviewTextForm({
+  sample,
+  isBuilding = false,
+  onBuildPlan,
+  onReviewChange,
+}: ReviewTextFormProps) {
   const [state, dispatch] = useReducer(
     reviewTextReducer,
     {
@@ -31,6 +39,7 @@ export function ReviewTextForm({ sample }: ReviewTextFormProps) {
 
   const updateField = (field: keyof ReviewTextFields, value: string) => {
     dispatch({ type: "change-field", field, value });
+    onReviewChange?.();
   };
 
   return (
@@ -62,7 +71,10 @@ export function ReviewTextForm({ sample }: ReviewTextFormProps) {
         <form
           className="review-form"
           noValidate
-          onReset={() => dispatch({ type: "reset" })}
+          onReset={() => {
+            dispatch({ type: "reset" });
+            onReviewChange?.();
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             dispatch({ type: "submit" });
@@ -226,9 +238,19 @@ export function ReviewTextForm({ sample }: ReviewTextFormProps) {
             <div className="confirmation-success" role="status">
               <strong>Text confirmed locally.</strong>
               <span>
-                The review gate is complete. No request was sent; action-plan generation
-                is connected in the next milestone.
+                The review gate is complete. No request has been sent yet. Build the
+                demo plan when you are ready.
               </span>
+              {onBuildPlan ? (
+                <button
+                  className="button button--accent"
+                  type="button"
+                  disabled={isBuilding}
+                  onClick={() => onBuildPlan(state.fields)}
+                >
+                  {isBuilding ? "Building demo plan…" : "Build demo action plan"}
+                </button>
+              ) : null}
             </div>
           ) : null}
 

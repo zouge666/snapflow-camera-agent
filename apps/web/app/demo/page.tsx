@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 
-import { ReviewTextForm } from "../../features/ocr-review/review-text-form";
 import { northstarPlanningSample } from "../../features/ocr-review/sample-review";
-import { DemoStepper } from "../_components/demo-stepper";
+import { WorkflowDemo } from "../../features/workflow/workflow-demo";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -21,13 +20,13 @@ export default function DemoPage() {
           <h1>Fix the text before AI turns it into work.</h1>
         </div>
         <p>
-          Start with a synthetic meeting image and its fixture transcript. Edit the text
-          and context, then explicitly confirm what the next step may use.
+          Start with a synthetic meeting image and its fixture transcript. Confirm the
+          text, then ask the deterministic demo API to return traceable candidate
+          actions.
         </p>
       </div>
 
-      <DemoStepper currentStep={1} />
-      <ReviewTextForm sample={northstarPlanningSample} />
+      <WorkflowDemo sample={northstarPlanningSample} />
     </main>
   );
 }

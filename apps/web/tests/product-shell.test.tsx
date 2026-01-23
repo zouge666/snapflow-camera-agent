@@ -34,6 +34,7 @@ describe("product shell", () => {
     expect(markup).toContain('aria-current="step"');
     expect(markup).toContain("Human review checkpoint");
     expect(markup).toContain("Review the sample transcript");
+    expect(markup).toContain("Demo provider");
     expect(markup).not.toContain("Use camera");
   });
 
