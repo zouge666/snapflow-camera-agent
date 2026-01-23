@@ -286,6 +286,12 @@ main:focus {
   transform: translateY(-0.12rem);
 }
 
+.button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+  transform: none;
+}
+
 .button--primary {
   color: var(--paper);
   background: var(--forest);
@@ -1273,6 +1279,18 @@ main:focus {
   line-height: 1.5;
 }
 
+.confirmation-success .button--accent {
+  width: fit-content;
+  min-height: 2.7rem;
+  margin-top: 0.65rem;
+  color: var(--ink);
+  background: var(--acid);
+}
+
+.confirmation-success .button--accent:hover {
+  background: var(--acid-soft);
+}
+
 .review-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1283,6 +1301,358 @@ main:focus {
 
 .review-actions button {
   cursor: pointer;
+}
+
+.demo-provider-banner,
+.provider-strip {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.demo-provider-banner {
+  margin-top: 2rem;
+  padding: 1rem 1.25rem;
+  color: var(--paper);
+  background: var(--ink);
+  border-radius: var(--radius-small);
+}
+
+.demo-provider-banner > div,
+.provider-strip > div {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.demo-provider-banner strong,
+.provider-strip strong {
+  color: var(--acid);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.demo-provider-banner p {
+  margin: 0;
+  color: rgb(255 253 248 / 68%);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.provider-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--coral);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.24rem rgb(246 117 93 / 16%);
+}
+
+.action-plan-shell {
+  margin-top: 2rem;
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-large);
+  box-shadow: var(--shadow);
+}
+
+.provider-strip {
+  padding: 1rem 1.5rem;
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.provider-strip > span {
+  color: rgb(255 253 248 / 54%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+}
+
+.plan-message {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  min-height: 16rem;
+  padding: clamp(2rem, 6vw, 4.5rem);
+}
+
+.plan-message h2,
+.plan-summary h2,
+.clarification-list h2 {
+  margin: 0;
+  font-family: ui-serif, Georgia, serif;
+  font-weight: 550;
+  letter-spacing: -0.045em;
+}
+
+.plan-message h2 {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+}
+
+.plan-message p,
+.plan-summary > p:last-child,
+.plan-empty p,
+.clarification-list article > p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.plan-message p {
+  margin: 0.8rem 0 0;
+}
+
+.loading-mark {
+  flex: 0 0 auto;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 0.28rem solid var(--canvas-deep);
+  border-top-color: var(--forest);
+  border-radius: 50%;
+  animation: plan-loading 800ms linear infinite;
+}
+
+@keyframes plan-loading {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-mark {
+    animation: none;
+    border-color: var(--forest);
+  }
+}
+
+.plan-message--error {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.plan-message--error > div {
+  max-width: 42rem;
+}
+
+.plan-summary {
+  padding: clamp(2rem, 6vw, 4.5rem);
+  background:
+    radial-gradient(circle at 95% 10%, rgb(199 246 92 / 26%), transparent 15rem),
+    var(--canvas-deep);
+  border-bottom: 1px solid var(--line);
+}
+
+.plan-summary .section-kicker {
+  margin-bottom: 1.1rem;
+}
+
+.plan-summary h2 {
+  max-width: 19ch;
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  line-height: 0.98;
+}
+
+.plan-summary > p:last-child {
+  max-width: 42rem;
+  margin: 1.35rem 0 0;
+}
+
+.plan-empty {
+  margin: clamp(1.5rem, 4vw, 3rem);
+  padding: clamp(2rem, 5vw, 4rem);
+  text-align: center;
+  background: var(--canvas);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-medium);
+}
+
+.plan-empty strong {
+  font-family: ui-serif, Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+}
+
+.plan-empty p {
+  max-width: 40rem;
+  margin: 0.8rem auto 0;
+}
+
+.candidate-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate-card {
+  min-width: 0;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border-right: 1px solid var(--line);
+}
+
+.candidate-card:last-child {
+  border-right: 0;
+}
+
+.candidate-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.candidate-number,
+.candidate-id,
+.clarification-list article > span {
+  color: var(--forest);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.candidate-id {
+  color: var(--muted);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.candidate-card h3 {
+  min-height: 5.4rem;
+  margin: 1.6rem 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: clamp(1.4rem, 2.5vw, 1.9rem);
+  font-weight: 550;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+}
+
+.candidate-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.candidate-fields > div {
+  min-width: 0;
+  padding: 0.7rem;
+  background: var(--canvas-deep);
+  border-radius: 0.55rem;
+}
+
+.candidate-fields dt {
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.candidate-fields dd {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.candidate-fields dd.is-unknown {
+  color: #8a3427;
+  font-style: italic;
+}
+
+.due-source {
+  min-height: 2.7rem;
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.candidate-evidence-list {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.candidate-evidence-list > strong {
+  color: var(--forest);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.action-evidence {
+  margin-top: 0.7rem;
+  padding: 0.85rem;
+  background: #f4f0e7;
+  border-left: 0.22rem solid var(--coral);
+  border-radius: 0 0.55rem 0.55rem 0;
+}
+
+.action-evidence blockquote {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+
+.action-evidence span {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.58rem;
+}
+
+.clarification-list {
+  padding: clamp(2rem, 6vw, 4.5rem);
+  color: var(--paper);
+  background: var(--forest-deep);
+}
+
+.clarification-list .section-kicker {
+  color: var(--acid);
+}
+
+.clarification-list h2 {
+  max-width: 18ch;
+  margin-top: 0.9rem;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+}
+
+.clarification-list article {
+  max-width: 48rem;
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: var(--radius-medium);
+}
+
+.clarification-list article > span {
+  color: var(--acid);
+  overflow-wrap: anywhere;
+}
+
+.clarification-list article h3 {
+  margin: 1rem 0 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.5rem;
+}
+
+.clarification-list article > p {
+  margin: 0.7rem 0 0;
+  color: rgb(255 253 248 / 66%);
+}
+
+.clarification-list .action-evidence {
+  color: var(--ink);
+  background: var(--paper);
 }
 
 .run-boundary {
@@ -1586,6 +1956,23 @@ main:focus {
     position: static;
   }
 
+  .candidate-list {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-card {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .candidate-card:last-child {
+    border-bottom: 0;
+  }
+
+  .candidate-card h3 {
+    min-height: auto;
+  }
+
   .evidence-grid {
     grid-template-columns: 1fr;
   }
@@ -1659,6 +2046,29 @@ main:focus {
   .guardrail-list {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .demo-provider-banner,
+  .provider-strip {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .demo-provider-banner p {
+    text-align: left;
+  }
+
+  .confirmation-success .button--accent {
+    width: 100%;
+  }
+
+  .plan-message {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .candidate-fields {
+    grid-template-columns: 1fr;
   }
 
   .workflow-preview {

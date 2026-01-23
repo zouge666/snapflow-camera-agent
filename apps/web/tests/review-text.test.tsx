@@ -124,6 +124,7 @@ describe("review text interface", () => {
     expect(markup).toContain("The next step sends text, not the image.");
     expect(markup).toContain('type="checkbox"');
     expect(markup).not.toContain("Text confirmed locally.");
+    expect(markup).not.toContain("Build demo action plan");
   });
 
   it("has no automatic axe violations in the review workspace", async () => {
