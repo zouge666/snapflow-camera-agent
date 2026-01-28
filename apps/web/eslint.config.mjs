@@ -14,6 +14,7 @@ export default defineConfig([
     "coverage/**",
     "next-env.d.ts",
     "lib/api/generated/**",
+    "public/ocr-runtime/**",
     "tests/fixtures/**",
   ]),
 ]);

@@ -2,6 +2,12 @@ packages:
   - "apps/*"
   - "packages/*"
 
+resolutionMode: time-based
+
+overrides:
+  unrs-resolver: 1.11.1
+
 allowBuilds:
   sharp: true
+  tesseract.js: false
   unrs-resolver: true

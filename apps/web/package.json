@@ -9,15 +9,20 @@
     "format": "prettier --config prettier.config.mjs --write . ../../tests/e2e",
     "format:check": "prettier --config prettier.config.mjs --check . ../../tests/e2e",
     "lint": "eslint . --max-warnings=0",
+    "prebuild": "node scripts/sync-ocr-assets.mjs",
+    "predev": "node scripts/sync-ocr-assets.mjs",
+    "prestart": "node scripts/sync-ocr-assets.mjs",
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
     "next": "16.2.10",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@types/jsdom": "28.0.3",
