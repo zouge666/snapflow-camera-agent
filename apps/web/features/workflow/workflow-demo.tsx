@@ -41,7 +41,7 @@ export function WorkflowDemo({ sample }: WorkflowDemoProps) {
     try {
       const plan = await requestActionPlan(request);
       if (requestVersion.current === version) {
-        dispatch({ type: "receive-plan", plan });
+        dispatch({ type: "receive-plan", plan, request });
       }
     } catch (error) {
       if (requestVersion.current === version) {

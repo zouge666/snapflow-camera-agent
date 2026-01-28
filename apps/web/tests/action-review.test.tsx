@@ -11,7 +11,10 @@ import {
   type ActionReviewAction,
   type ActionReviewState,
 } from "../features/workflow/action-review";
-import { ActionReviewBoardView } from "../features/workflow/action-review-board";
+import {
+  ActionReviewBoardView,
+  initialIcsDownloadState,
+} from "../features/workflow/action-review-board";
 
 const candidates: readonly CandidateAction[] = [
   {
@@ -19,7 +22,7 @@ const candidates: readonly CandidateAction[] = [
     title: "Send the revised onboarding checklist",
     owner: "Alex",
     due: {
-      iso_date: "2026-07-17",
+      iso_date: "2026-01-16",
       raw_text: "by Friday",
       resolution: "relative",
     },
@@ -55,14 +58,14 @@ const candidates: readonly CandidateAction[] = [
     title: "Book a 30-minute pilot review",
     owner: "Mina",
     due: {
-      iso_date: "2026-07-22",
-      raw_text: "on 2026-07-22",
+      iso_date: "2026-01-22",
+      raw_text: "on 2026-01-22",
       resolution: "absolute",
     },
     priority: "unknown",
     evidence: [
       {
-        quote: "Mina: Book a 30-minute pilot review on 2026-07-22.",
+        quote: "Mina: Book a 30-minute pilot review on 2026-01-22.",
         start: 162,
         end: 216,
       },
@@ -129,7 +132,7 @@ describe("action review domain", () => {
         type: "change-text-field",
         id: "action-2",
         field: "dueDate",
-        value: "2026-02-30",
+        value: "2025-02-30",
       },
       { type: "save-edit", id: "action-2" },
     );
@@ -174,7 +177,7 @@ describe("action review domain", () => {
         type: "change-text-field",
         id: "action-2",
         field: "dueDate",
-        value: "2026-07-21",
+        value: "2026-01-21",
       },
       {
         type: "change-priority",
@@ -188,13 +191,13 @@ describe("action review domain", () => {
     expect(item.current).toEqual({
       title: "Prepare the support FAQ",
       owner: "Dana",
-      dueDate: "2026-07-21",
+      dueDate: "2026-01-21",
       priority: "high",
     });
     expect(item.decision).toBe("pending");
     expect(getActionAuditDiff(item)).toEqual([
       { field: "Owner", before: "unknown", after: "Dana" },
-      { field: "Date", before: "unknown", after: "2026-07-21" },
+      { field: "Date", before: "unknown", after: "2026-01-21" },
       { field: "Priority", before: "unknown", after: "high" },
     ]);
     expect(item.original.owner).toBeNull();
@@ -211,7 +214,7 @@ describe("action review domain", () => {
         id: "action-2",
         title: "Prepare the support FAQ",
         owner: "Dana",
-        dueDate: "2026-07-21",
+        dueDate: "2026-01-21",
         priority: "high",
         evidence: originalEvidence,
       },
@@ -243,7 +246,9 @@ describe("action review interface", () => {
     const markup = renderToStaticMarkup(
       <ActionReviewBoardView
         state={createActionReviewState(candidates)}
+        exportState={initialIcsDownloadState}
         onAction={() => undefined}
+        onDownload={() => undefined}
       />,
     );
 
@@ -252,7 +257,9 @@ describe("action review interface", () => {
     expect(markup.match(/Pending review/g)).toHaveLength(3);
     expect(markup).toContain("0 approved");
     expect(markup).toContain("Nothing is approved by default.");
-    expect(markup).toContain("not submitted or exported yet");
+    expect(markup).toContain("local demo API only");
+    expect(markup).toContain("Download approved .ics");
+    expect(markup).toContain("disabled");
     expect(markup).not.toContain("Approve all");
   });
 
@@ -270,23 +277,29 @@ describe("action review interface", () => {
         type: "change-text-field",
         id: "action-2",
         field: "dueDate",
-        value: "2026-07-21",
+        value: "2026-01-21",
       },
       { type: "save-edit", id: "action-2" },
       { type: "decide", id: "action-2", decision: "approved" },
     );
     const markup = renderToStaticMarkup(
-      <ActionReviewBoardView state={edited} onAction={() => undefined} />,
+      <ActionReviewBoardView
+        state={edited}
+        exportState={initialIcsDownloadState}
+        onAction={() => undefined}
+        onDownload={() => undefined}
+      />,
     );
 
     expect(markup).toContain("Edited locally");
     expect(markup).toContain("Dana");
-    expect(markup).toContain("2026-07-21");
+    expect(markup).toContain("2026-01-21");
     expect(markup).toContain(
       "Evidence below always comes from the original candidate.",
     );
     expect(markup).toContain("Prepare the support FAQ before the pilot review.");
     expect(markup).toContain("Source characters 111–159");
     expect(markup).toContain("1 approved");
+    expect(markup).toContain("<dt>Calendar-ready</dt><dd>1</dd>");
   });
 });

@@ -194,17 +194,19 @@ describe("workflow states", () => {
     const empty = workflowReducer(error, {
       type: "receive-plan",
       plan: emptyPlan,
+      request,
     });
     const actions = workflowReducer(empty, {
       type: "receive-plan",
       plan,
+      request,
     });
     const invalidated = workflowReducer(actions, { type: "invalidate-plan" });
 
     expect(loading.status).toBe("loading");
     expect(error).toEqual({ status: "error", message: "Try again." });
-    expect(empty).toEqual({ status: "ready", plan: emptyPlan });
-    expect(actions).toEqual({ status: "ready", plan });
+    expect(empty).toEqual({ status: "ready", plan: emptyPlan, request });
+    expect(actions).toEqual({ status: "ready", plan, request });
     expect(invalidated).toEqual(initialWorkflowState);
   });
 
@@ -223,7 +225,7 @@ describe("workflow states", () => {
   });
 
   it("renders an honest empty state without inventing candidates", () => {
-    const markup = renderPanel({ status: "ready", plan: emptyPlan });
+    const markup = renderPanel({ status: "ready", plan: emptyPlan, request });
 
     expect(markup).toContain("No candidate actions found.");
     expect(markup).toContain("will not invent actions");
@@ -231,7 +233,7 @@ describe("workflow states", () => {
   });
 
   it("renders actions, unknown values, clarifications and source ranges", () => {
-    const markup = renderPanel({ status: "ready", plan });
+    const markup = renderPanel({ status: "ready", plan, request });
 
     expect(markup).toContain(plan.summary);
     expect(markup).toContain("Send the revised onboarding checklist");
@@ -244,11 +246,12 @@ describe("workflow states", () => {
     expect(markup.match(/>Approve</g)).toHaveLength(plan.candidate_actions.length);
     expect(markup.match(/>Reject</g)).toHaveLength(plan.candidate_actions.length);
     expect(markup).toContain("Nothing is approved by default.");
+    expect(markup).toContain("Download approved .ics");
     expect(markup).not.toContain("Approve all");
   });
 
   it("has no automatic axe violations in the populated action plan", async () => {
-    const markup = renderPanel({ status: "ready", plan });
+    const markup = renderPanel({ status: "ready", plan, request });
     const dom = new JSDOM(
       `<!doctype html><html lang="en"><head><title>SnapFlow plan test</title></head><body><main>${markup}</main></body></html>`,
       {
