@@ -29,6 +29,7 @@ import {
   type ProcessedImage,
   type QuarterTurn,
 } from "../image-processing/image-processing";
+import { OcrPanel } from "../ocr/ocr-panel";
 
 type CameraAccessPanelProps = Readonly<{
   adapter?: CameraMediaAdapter;
@@ -590,6 +591,12 @@ export function CameraAccessPanel({
                       : "Preview re-encoded locally. Metadata removed."}
               </p>
             </div>
+            {processedImage !== null ? (
+              <OcrPanel
+                key={processedImage.objectUrl}
+                imageUrl={processedImage.objectUrl}
+              />
+            ) : null}
             <div className="camera-capture-review-actions">
               {selectedFrame.source === "camera" ? (
                 <button
