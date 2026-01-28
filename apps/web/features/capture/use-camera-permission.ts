@@ -9,13 +9,14 @@ import {
   initialCameraPermissionState,
   stopMediaStream,
   type CameraMediaAdapter,
+  type CameraFacingMode,
   type CameraPermissionState,
 } from "./camera-permission";
 
 type CameraPermissionController = Readonly<{
   state: CameraPermissionState;
   stream: MediaStream | null;
-  requestCamera: () => Promise<void>;
+  requestCamera: (facingMode?: CameraFacingMode) => Promise<void>;
   releaseCamera: () => void;
 }>;
 
@@ -36,42 +37,45 @@ export function useCameraPermission(
     setState(initialCameraPermissionState);
   }, []);
 
-  const requestCamera = useCallback(async () => {
-    const availability = adapter.getAvailability();
+  const requestCamera = useCallback(
+    async (facingMode: CameraFacingMode = "environment") => {
+      const availability = adapter.getAvailability();
 
-    if (availability !== "available") {
-      setState({
-        status: "unavailable",
-        reason:
-          availability === "insecure-context" ? "insecure-context" : "unsupported",
-      });
-      return;
-    }
-
-    const requestVersion = requestVersionRef.current + 1;
-    requestVersionRef.current = requestVersion;
-    stopMediaStream(streamRef.current);
-    streamRef.current = null;
-    setStream(null);
-    setState({ status: "requesting" });
-
-    try {
-      const stream = await adapter.requestStream(createCameraConstraints());
-
-      if (!mountedRef.current || requestVersionRef.current !== requestVersion) {
-        stopMediaStream(stream);
+      if (availability !== "available") {
+        setState({
+          status: "unavailable",
+          reason:
+            availability === "insecure-context" ? "insecure-context" : "unsupported",
+        });
         return;
       }
 
-      streamRef.current = stream;
-      setStream(stream);
-      setState({ status: "granted" });
-    } catch (error) {
-      if (mountedRef.current && requestVersionRef.current === requestVersion) {
-        setState(classifyCameraError(error));
+      const requestVersion = requestVersionRef.current + 1;
+      requestVersionRef.current = requestVersion;
+      stopMediaStream(streamRef.current);
+      streamRef.current = null;
+      setStream(null);
+      setState({ status: "requesting" });
+
+      try {
+        const stream = await adapter.requestStream(createCameraConstraints(facingMode));
+
+        if (!mountedRef.current || requestVersionRef.current !== requestVersion) {
+          stopMediaStream(stream);
+          return;
+        }
+
+        streamRef.current = stream;
+        setStream(stream);
+        setState({ status: "granted" });
+      } catch (error) {
+        if (mountedRef.current && requestVersionRef.current === requestVersion) {
+          setState(classifyCameraError(error));
+        }
       }
-    }
-  }, [adapter]);
+    },
+    [adapter],
+  );
 
   useEffect(() => {
     mountedRef.current = true;

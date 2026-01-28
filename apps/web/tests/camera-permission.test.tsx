@@ -123,7 +123,7 @@ describe("camera permission state", () => {
 
     expect(requestStream).toHaveBeenCalledOnce();
     expect(requestStream).toHaveBeenCalledWith(createCameraConstraints());
-    expect(mounted.container.textContent).toContain("Camera access is ready.");
+    expect(mounted.container.textContent).toContain("Live preview is ready.");
     expect(track.stop).not.toHaveBeenCalled();
   });
 
@@ -247,6 +247,25 @@ describe("camera permission state", () => {
 });
 
 describe("camera permission helpers", () => {
+  it("builds explicit rear and front camera constraints", () => {
+    expect(createCameraConstraints("environment")).toEqual({
+      audio: false,
+      video: {
+        facingMode: {
+          ideal: "environment",
+        },
+      },
+    });
+    expect(createCameraConstraints("user")).toEqual({
+      audio: false,
+      video: {
+        facingMode: {
+          ideal: "user",
+        },
+      },
+    });
+  });
+
   it("classifies missing devices and unexpected failures separately", () => {
     expect(classifyCameraError({ name: "NotFoundError" })).toEqual({
       status: "unavailable",
