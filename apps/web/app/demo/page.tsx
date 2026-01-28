@@ -26,7 +26,7 @@ export default function DemoPage() {
         </p>
       </div>
 
-      <WorkflowDemo sample={northstarPlanningSample} />
+      <WorkflowDemo samples={[northstarPlanningSample]} />
     </main>
   );
 }

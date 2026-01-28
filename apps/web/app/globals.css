@@ -1343,6 +1343,154 @@ main:focus {
   text-align: right;
 }
 
+.sample-picker {
+  margin-top: 1.25rem;
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+  background: var(--acid-soft);
+  border: 1px solid rgb(23 79 62 / 25%);
+  border-radius: var(--radius-medium);
+}
+
+.sample-picker-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.72fr);
+  gap: 2rem;
+  align-items: end;
+}
+
+.sample-picker-heading .section-kicker {
+  margin-bottom: 0.45rem;
+}
+
+.sample-picker-heading h2 {
+  margin: 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  font-weight: 550;
+  letter-spacing: -0.04em;
+}
+
+.sample-picker-heading > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.sample-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.sample-picker-option {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem;
+  color: var(--ink);
+  text-align: left;
+  background: rgb(255 253 248 / 72%);
+  border: 1px solid rgb(23 79 62 / 24%);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+
+.sample-picker-option:hover {
+  background: var(--paper);
+  border-color: var(--forest);
+}
+
+.sample-picker-option[aria-checked="true"] {
+  background: var(--paper);
+  border-color: var(--forest);
+  box-shadow: inset 0 0 0 0.12rem var(--forest);
+}
+
+.sample-picker-image {
+  display: grid;
+  overflow: hidden;
+  background: var(--ink);
+  border-radius: 0.55rem;
+  place-items: center;
+}
+
+.sample-picker-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 6rem;
+  object-fit: cover;
+}
+
+.sample-picker-option-copy {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.sample-picker-option-topline {
+  display: flex;
+  gap: 0.75rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.sample-picker-option-topline strong {
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.08rem;
+  line-height: 1.1;
+}
+
+.sample-picker-option-topline > span {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.45rem;
+  color: var(--forest);
+  background: var(--acid);
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.sample-picker-option-copy > span:not(.sample-picker-option-topline) {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.sample-picker-option-copy small {
+  color: var(--forest);
+  font-size: 0.62rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.sample-picker-footer {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(23 79 62 / 20%);
+}
+
+.sample-picker-footer p,
+.sample-picker-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+}
+
+.sample-picker-footer .button {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  font-size: 0.76rem;
+}
+
 .camera-access-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2649,6 +2797,7 @@ main:focus {
   .page-intro,
   .workspace-grid,
   .review-layout,
+  .sample-picker-heading,
   .camera-access-card,
   .camera-capture-review {
     grid-template-columns: 1fr;
@@ -2759,6 +2908,19 @@ main:focus {
 
   .camera-access-actions {
     width: 100%;
+  }
+
+  .sample-picker-option {
+    grid-template-columns: 1fr;
+  }
+
+  .sample-picker-image img {
+    max-height: 12rem;
+  }
+
+  .sample-picker-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .camera-preview-footer {
