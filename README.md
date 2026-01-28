@@ -16,6 +16,8 @@
 
 ```bash
 ./scripts/pnpmw test
+./scripts/pnpmw test:e2e:install
+./scripts/pnpmw test:e2e
 ./scripts/pnpmw lint
 ./scripts/pnpmw typecheck
 ./scripts/pnpmw build

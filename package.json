@@ -21,8 +21,9 @@
     "format:check:api": ".venv/bin/python -m ruff format --check apps/api",
     "format:check:web": "pnpm --filter @snapflow/web format:check",
     "format:web": "pnpm --filter @snapflow/web format",
-    "lint": "pnpm run lint:web && pnpm run lint:api",
+    "lint": "pnpm run lint:web && pnpm run lint:e2e && pnpm run lint:api",
     "lint:api": ".venv/bin/python -m ruff check apps/api",
+    "lint:e2e": "pnpm --filter @snapflow/web exec -- sh -c 'eslint_path=$PWD/node_modules/.bin/eslint; cd ../..; \"$eslint_path\" --config tests/e2e/eslint.config.mjs tests/e2e --max-warnings=0'",
     "lint:web": "pnpm --filter @snapflow/web lint",
     "setup": "node scripts/setup.mjs",
     "start:web": "pnpm --filter @snapflow/web start",
@@ -30,6 +31,8 @@
     "test:api": ".venv/bin/python -m pytest apps/api/tests --cov=snapflow --cov-config=apps/api/pyproject.toml --cov-report=term-missing",
     "test:api:integration": ".venv/bin/python -m pytest apps/api/tests -m integration",
     "test:api:unit": ".venv/bin/python -m pytest apps/api/tests -m unit",
+    "test:e2e": "playwright test --config apps/web/playwright.config.ts",
+    "test:e2e:install": "playwright install chromium",
     "test:fixtures": "pnpm run test:fixtures:schema && pnpm run test:fixtures:semantic",
     "test:fixtures:schema": ".venv/bin/python -B tests/fixtures/check_schema.py",
     "test:fixtures:semantic": "node tests/fixtures/check-fixtures.mjs",
@@ -38,5 +41,8 @@
     "typecheck": "pnpm run typecheck:web && pnpm run typecheck:api",
     "typecheck:api": ".venv/bin/python -m mypy --config-file apps/api/pyproject.toml apps/api/src apps/api/tests",
     "typecheck:web": "pnpm --filter @snapflow/web typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
   }
 }
