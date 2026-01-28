@@ -21,10 +21,10 @@ import {
 
 const request: ActionPlanRequest = {
   source_text:
-    "Northstar launch planning — 2026-07-16\n\nActions\n- Alex: Send the revised onboarding checklist by Friday.",
+    "Northstar launch planning — 2026-01-15\n\nActions\n- Alex: Send the revised onboarding checklist by Friday.",
   locale: "en-US",
   timezone: "Europe/Copenhagen",
-  reference_date: "2026-07-16",
+  reference_date: "2026-01-15",
 };
 
 const plan: ActionPlanResponse = {
@@ -37,7 +37,7 @@ const plan: ActionPlanResponse = {
       title: "Send the revised onboarding checklist",
       owner: "Alex",
       due: {
-        iso_date: "2026-07-17",
+        iso_date: "2026-01-16",
         raw_text: "by Friday",
         resolution: "relative",
       },
@@ -98,7 +98,12 @@ describe("temporary action-plan client", () => {
   it("posts only the confirmed text context and parses the typed response", async () => {
     let sentInput: string | URL | Request | undefined;
     let sentInit: RequestInit | undefined;
-    const result = await requestActionPlan(request, async (input, init) => {
+    const pollutedRequest = {
+      ...request,
+      image: "data:image/jpeg;base64,c2hvdWxkLW5vdC1sZWFr",
+      image_blob: new Blob(["should-not-leak"]),
+    } as ActionPlanRequest;
+    const result = await requestActionPlan(pollutedRequest, async (input, init) => {
       sentInput = input;
       sentInit = init;
       return Response.json(plan);

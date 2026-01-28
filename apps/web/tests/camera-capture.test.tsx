@@ -15,9 +15,15 @@ import {
   createCameraConstraints,
   type CameraMediaAdapter,
 } from "../features/capture/camera-permission";
+import {
+  type ImageTransform,
+  type LocalImageProcessor,
+  type ProcessedImage,
+} from "../features/image-processing/image-processing";
 
 type MountedPanel = Readonly<{
   container: HTMLDivElement;
+  imageProcessor: LocalImageProcessor;
   root: Root;
   window: Window;
 }>;
@@ -29,6 +35,31 @@ const capturedFrame: CapturedFrame = {
   height: 1920,
   orientation: "portrait",
 };
+
+function createTestImageProcessor() {
+  let objectUrlSequence = 0;
+
+  return {
+    process: vi.fn(async (frame: CapturedFrame, transform: ImageTransform) => {
+      objectUrlSequence += 1;
+      const isSideways = transform.rotation === 90 || transform.rotation === 270;
+      const width = isSideways ? frame.height : frame.width;
+      const height = isSideways ? frame.width : frame.height;
+
+      return {
+        objectUrl: `blob:snapflow-${objectUrlSequence}`,
+        width,
+        height,
+        orientation: isSideways ? ("landscape" as const) : frame.orientation,
+        rotation: transform.rotation,
+        crop: { x: 0, y: 0, width: frame.width, height: frame.height },
+        wasDownsampled: false,
+        metadataRemoved: true as const,
+      };
+    }),
+    release: vi.fn(),
+  } satisfies LocalImageProcessor;
+}
 
 function createTrack() {
   return {
@@ -45,6 +76,7 @@ function createStream(track: ReturnType<typeof createTrack>) {
 async function mountPanel(
   adapter: CameraMediaAdapter,
   captureFrame = vi.fn(() => capturedFrame),
+  imageProcessor: LocalImageProcessor = createTestImageProcessor(),
 ): Promise<MountedPanel> {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id='root'></div></body></html>",
@@ -79,13 +111,20 @@ async function mountPanel(
   const root = createRoot(container);
   const mounted = {
     container,
+    imageProcessor,
     root,
     window: dom.window as unknown as Window,
   };
   mountedPanels.push(mounted);
 
   await act(async () => {
-    root.render(<CameraAccessPanel adapter={adapter} captureFrame={captureFrame} />);
+    root.render(
+      <CameraAccessPanel
+        adapter={adapter}
+        captureFrame={captureFrame}
+        imageProcessor={imageProcessor}
+      />,
+    );
   });
 
   return mounted;
@@ -177,8 +216,91 @@ describe("static frame capture", () => {
       mounted.container.querySelector<HTMLImageElement>(
         'img[alt="Captured meeting notes awaiting confirmation"]',
       )?.src,
-    ).toBe(capturedFrame.dataUrl);
+    ).toBe("blob:snapflow-1");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("releases replaced and unmounted local previews", async () => {
+    const track = createTrack();
+    const mounted = await mountPanel({
+      getAvailability: () => "available",
+      requestStream: vi.fn(async () => createStream(track)),
+    });
+    await startReadyPreview(mounted);
+
+    await act(async () => {
+      getButton(mounted.container, "Capture frame").click();
+    });
+    await act(async () => {
+      getButton(mounted.container, "Rotate right").click();
+    });
+
+    expect(mounted.imageProcessor.release).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ objectUrl: "blob:snapflow-1" }),
+    );
+    expect(
+      mounted.container.querySelector<HTMLImageElement>(
+        'img[alt="Captured meeting notes awaiting confirmation"]',
+      )?.src,
+    ).toBe("blob:snapflow-2");
+
+    await act(async () => {
+      mounted.root.unmount();
+    });
+    mountedPanels.pop();
+
+    expect(mounted.imageProcessor.release).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ objectUrl: "blob:snapflow-2" }),
+    );
+  });
+
+  it("releases a late processed image after the user returns to the sample", async () => {
+    const track = createTrack();
+    let resolveImage: ((image: ProcessedImage) => void) | undefined;
+    const imagePromise = new Promise<ProcessedImage>((resolve) => {
+      resolveImage = resolve;
+    });
+    const imageProcessor: LocalImageProcessor = {
+      process: vi.fn(() => imagePromise),
+      release: vi.fn(),
+    };
+    const mounted = await mountPanel(
+      {
+        getAvailability: () => "available",
+        requestStream: vi.fn(async () => createStream(track)),
+      },
+      vi.fn(() => capturedFrame),
+      imageProcessor,
+    );
+    await startReadyPreview(mounted);
+
+    await act(async () => {
+      getButton(mounted.container, "Capture frame").click();
+    });
+    await act(async () => {
+      getButton(mounted.container, "Continue with sample").click();
+    });
+
+    const lateImage: ProcessedImage = {
+      objectUrl: "blob:late-preview",
+      width: 1080,
+      height: 1920,
+      orientation: "portrait",
+      rotation: 0,
+      crop: { x: 0, y: 0, width: 1080, height: 1920 },
+      wasDownsampled: false,
+      metadataRemoved: true,
+    };
+    await act(async () => {
+      resolveImage?.(lateImage);
+      await imagePromise;
+    });
+
+    expect(imageProcessor.release).toHaveBeenCalledWith(lateImage);
+    expect(mounted.container.textContent).not.toContain("Review this capture.");
+    expect(mounted.container.querySelector('img[src^="blob:"]')).toBeNull();
   });
 
   it("uses the selected front camera and obtains a fresh stream for retake", async () => {

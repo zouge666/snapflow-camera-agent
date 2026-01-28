@@ -15,6 +15,10 @@ import {
   validateImageFile,
   type ImageFileLoader,
 } from "../features/capture/image-upload";
+import {
+  type ImageTransform,
+  type LocalImageProcessor,
+} from "../features/image-processing/image-processing";
 
 type MountedPanel = Readonly<{
   container: HTMLDivElement;
@@ -31,6 +35,22 @@ const uploadedFrame: CapturedFrame = {
   orientation: "landscape",
 };
 const mountedPanels: MountedPanel[] = [];
+
+function createTestImageProcessor(): LocalImageProcessor {
+  return {
+    process: vi.fn(async (frame: CapturedFrame, transform: ImageTransform) => ({
+      objectUrl: "blob:snapflow-upload",
+      width: frame.width,
+      height: frame.height,
+      orientation: frame.orientation,
+      rotation: transform.rotation,
+      crop: { x: 0, y: 0, width: frame.width, height: frame.height },
+      wasDownsampled: false,
+      metadataRemoved: true as const,
+    })),
+    release: vi.fn(),
+  };
+}
 
 function createImageFile(bytes: readonly number[], name: string, type: string): File {
   return new File([new Uint8Array(bytes).buffer], name, { type });
@@ -91,7 +111,13 @@ async function mountPanel(
   mountedPanels.push(mounted);
 
   await act(async () => {
-    root.render(<CameraAccessPanel adapter={adapter} loadFile={loadFile} />);
+    root.render(
+      <CameraAccessPanel
+        adapter={adapter}
+        loadFile={loadFile}
+        imageProcessor={createTestImageProcessor()}
+      />,
+    );
   });
 
   return mounted;
@@ -272,6 +298,9 @@ describe("local image validation", () => {
       width: 1200,
       height: 800,
     });
+    expect(createImageBitmap).toHaveBeenCalledWith(file, {
+      imageOrientation: "from-image",
+    });
     expect(close).toHaveBeenCalledOnce();
   });
 });
@@ -313,7 +342,7 @@ describe("file picker fallback", () => {
       mounted.container.querySelector<HTMLImageElement>(
         'img[alt="Selected meeting notes awaiting confirmation"]',
       )?.src,
-    ).toBe(uploadedFrame.dataUrl);
+    ).toBe("blob:snapflow-upload");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

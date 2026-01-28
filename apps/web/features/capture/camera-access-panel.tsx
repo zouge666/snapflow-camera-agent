@@ -20,11 +20,21 @@ import {
   type ImageFileLoader,
 } from "./image-upload";
 import { useCameraPermission } from "./use-camera-permission";
+import {
+  browserLocalImageProcessor,
+  initialImageTransform,
+  type CropPreset,
+  type ImageTransform,
+  type LocalImageProcessor,
+  type ProcessedImage,
+  type QuarterTurn,
+} from "../image-processing/image-processing";
 
 type CameraAccessPanelProps = Readonly<{
   adapter?: CameraMediaAdapter;
   captureFrame?: FrameCapture;
   loadFile?: ImageFileLoader;
+  imageProcessor?: LocalImageProcessor;
 }>;
 
 type CameraPreviewProps = Readonly<{
@@ -153,12 +163,21 @@ export function CameraAccessPanel({
   adapter,
   captureFrame = captureVideoFrame,
   loadFile = loadImageFile,
+  imageProcessor = browserLocalImageProcessor,
 }: CameraAccessPanelProps) {
   const camera = useCameraPermission(adapter);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadVersionRef = useRef(0);
+  const processingVersionRef = useRef(0);
+  const processedImageRef = useRef<ProcessedImage | null>(null);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [selectedFrame, setSelectedFrame] = useState<SelectedFrame | null>(null);
+  const [imageTransform, setImageTransform] =
+    useState<ImageTransform>(initialImageTransform);
+  const [processedImage, setProcessedImage] = useState<ProcessedImage | null>(null);
+  const [processingState, setProcessingState] = useState<
+    Readonly<{ status: "idle" | "processing" | "error" }>
+  >({ status: "idle" });
   const [captureError, setCaptureError] = useState(false);
   const [uploadState, setUploadState] = useState<
     Readonly<{ status: "idle" | "validating" | "error"; message?: string }>
@@ -174,17 +193,76 @@ export function CameraAccessPanel({
     camera.state.status === "error" ||
     uploadState.status === "error";
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const processor = imageProcessor;
+
+    return () => {
       uploadVersionRef.current += 1;
-    },
-    [],
-  );
+      processingVersionRef.current += 1;
+
+      if (processedImageRef.current !== null) {
+        processor.release(processedImageRef.current);
+        processedImageRef.current = null;
+      }
+    };
+  }, [imageProcessor]);
+
+  const releaseProcessedImage = () => {
+    processingVersionRef.current += 1;
+
+    if (processedImageRef.current !== null) {
+      imageProcessor.release(processedImageRef.current);
+      processedImageRef.current = null;
+    }
+
+    setProcessedImage(null);
+    setProcessingState({ status: "idle" });
+  };
+
+  const processSelectedFrame = async (
+    selection: SelectedFrame,
+    transform: ImageTransform,
+  ) => {
+    const processingVersion = processingVersionRef.current + 1;
+    processingVersionRef.current = processingVersion;
+    setSelectedFrame(selection);
+    setImageTransform(transform);
+    setProcessingState({ status: "processing" });
+
+    try {
+      const image = await imageProcessor.process(selection.frame, transform);
+
+      if (processingVersionRef.current !== processingVersion) {
+        imageProcessor.release(image);
+        return;
+      }
+
+      if (processedImageRef.current !== null) {
+        imageProcessor.release(processedImageRef.current);
+      }
+
+      processedImageRef.current = image;
+      setProcessedImage(image);
+      setProcessingState({ status: "idle" });
+    } catch {
+      if (processingVersionRef.current === processingVersion) {
+        setProcessingState({ status: "error" });
+      }
+    }
+  };
+
+  const applyTransform = (transform: ImageTransform) => {
+    if (selectedFrame !== null) {
+      void processSelectedFrame(selectedFrame, transform);
+    }
+  };
 
   const stopAndUseSample = () => {
     uploadVersionRef.current += 1;
+    releaseProcessedImage();
     camera.releaseCamera();
     setSelectedFrame(null);
+    setImageTransform(initialImageTransform);
     setCaptureError(false);
     setUploadState({ status: "idle" });
     document.getElementById("review-title")?.scrollIntoView({
@@ -195,10 +273,14 @@ export function CameraAccessPanel({
 
   const handleCapture = (frame: CapturedFrame) => {
     uploadVersionRef.current += 1;
-    setSelectedFrame({
-      frame,
-      source: "camera",
-    });
+    releaseProcessedImage();
+    void processSelectedFrame(
+      {
+        frame,
+        source: "camera",
+      },
+      initialImageTransform,
+    );
     setCaptureError(false);
     setUploadState({ status: "idle" });
     camera.releaseCamera();
@@ -206,7 +288,9 @@ export function CameraAccessPanel({
 
   const retake = () => {
     uploadVersionRef.current += 1;
+    releaseProcessedImage();
     setSelectedFrame(null);
+    setImageTransform(initialImageTransform);
     setCaptureError(false);
     setUploadState({ status: "idle" });
     void camera.requestCamera(facingMode);
@@ -225,20 +309,27 @@ export function CameraAccessPanel({
 
     const uploadVersion = uploadVersionRef.current + 1;
     uploadVersionRef.current = uploadVersion;
+    releaseProcessedImage();
     camera.releaseCamera();
     setSelectedFrame(null);
+    setImageTransform(initialImageTransform);
     setCaptureError(false);
     setUploadState({ status: "validating" });
 
     try {
       const frame = await loadFile(file);
       if (uploadVersionRef.current === uploadVersion) {
-        setSelectedFrame({
-          frame,
-          source: "upload",
-          fileName: file.name,
-        });
-        setUploadState({ status: "idle" });
+        await processSelectedFrame(
+          {
+            frame,
+            source: "upload",
+            fileName: file.name,
+          },
+          initialImageTransform,
+        );
+        if (uploadVersionRef.current === uploadVersion) {
+          setUploadState({ status: "idle" });
+        }
       }
     } catch (error) {
       if (uploadVersionRef.current === uploadVersion) {
@@ -255,6 +346,17 @@ export function CameraAccessPanel({
   };
 
   const selectedImage = selectedFrame?.frame ?? null;
+  const rotateBy = (degrees: QuarterTurn) => {
+    const rotation = ((imageTransform.rotation + degrees) % 360) as QuarterTurn;
+    applyTransform({ ...imageTransform, rotation });
+  };
+  const selectCropPreset = (cropPreset: CropPreset) => {
+    applyTransform({ ...imageTransform, cropPreset });
+  };
+  const resetImage = () => {
+    applyTransform(initialImageTransform);
+  };
+  const shownDimensions = processedImage ?? selectedImage;
 
   return (
     <section className="camera-access-card" aria-labelledby="camera-access-title">
@@ -382,17 +484,25 @@ export function CameraAccessPanel({
       {selectedFrame !== null ? (
         <div className="camera-capture-review">
           <div className="camera-capture-review-image">
-            <Image
-              src={selectedFrame.frame.dataUrl}
-              alt={
-                selectedFrame.source === "camera"
-                  ? "Captured meeting notes awaiting confirmation"
-                  : "Selected meeting notes awaiting confirmation"
-              }
-              width={selectedFrame.frame.width}
-              height={selectedFrame.frame.height}
-              unoptimized
-            />
+            {processedImage !== null ? (
+              <Image
+                src={processedImage.objectUrl}
+                alt={
+                  selectedFrame.source === "camera"
+                    ? "Captured meeting notes awaiting confirmation"
+                    : "Selected meeting notes awaiting confirmation"
+                }
+                width={processedImage.width}
+                height={processedImage.height}
+                unoptimized
+              />
+            ) : (
+              <p className="camera-processing-placeholder" role="status">
+                {processingState.status === "error"
+                  ? "This image could not be processed safely. Try another image."
+                  : "Preparing a private local preview…"}
+              </p>
+            )}
           </div>
           <div className="camera-capture-review-copy">
             <p className="section-kicker">
@@ -404,8 +514,9 @@ export function CameraAccessPanel({
                 : "Review this image."}
             </h3>
             <p>
-              The camera is off. This {selectedFrame.frame.orientation} image stays in
-              browser memory and has not been sent to the API.
+              The camera is off. This image is rotated, cropped, resized, and stripped
+              of metadata in your browser. The image stays on this device and has not
+              been sent to the API.
             </p>
             {selectedFrame.fileName ? (
               <p className="camera-capture-file-name">
@@ -416,14 +527,69 @@ export function CameraAccessPanel({
               <div>
                 <dt>Dimensions</dt>
                 <dd>
-                  {selectedFrame.frame.width} × {selectedFrame.frame.height}
+                  {shownDimensions?.width} × {shownDimensions?.height}
                 </dd>
               </div>
               <div>
                 <dt>Orientation</dt>
-                <dd>{selectedFrame.frame.orientation}</dd>
+                <dd>{shownDimensions?.orientation}</dd>
               </div>
             </dl>
+            <div className="camera-image-tools" aria-label="Local image tools">
+              <div className="camera-image-tool-buttons">
+                <button
+                  className="button button--quiet"
+                  type="button"
+                  disabled={processingState.status === "processing"}
+                  onClick={() => rotateBy(270)}
+                >
+                  Rotate left
+                </button>
+                <button
+                  className="button button--quiet"
+                  type="button"
+                  disabled={processingState.status === "processing"}
+                  onClick={() => rotateBy(90)}
+                >
+                  Rotate right
+                </button>
+              </div>
+              <label>
+                <span>Crop</span>
+                <select
+                  value={imageTransform.cropPreset}
+                  disabled={processingState.status === "processing"}
+                  onChange={(event) =>
+                    selectCropPreset(event.target.value as CropPreset)
+                  }
+                >
+                  <option value="full">Full image</option>
+                  <option value="square">Square center</option>
+                  <option value="four-three">4:3 center</option>
+                </select>
+              </label>
+              <button
+                className="button button--quiet"
+                type="button"
+                disabled={
+                  processingState.status === "processing" ||
+                  (imageTransform.rotation === 0 &&
+                    imageTransform.cropPreset === "full")
+                }
+                onClick={resetImage}
+              >
+                Reset image
+              </button>
+              <p aria-live="polite">
+                {processingState.status === "processing"
+                  ? "Updating local preview…"
+                  : processingState.status === "error"
+                    ? "The latest edit failed. The previous local preview is unchanged."
+                    : processedImage?.wasDownsampled
+                      ? "Large image resized to a safe working size. Metadata removed."
+                      : "Preview re-encoded locally. Metadata removed."}
+              </p>
+            </div>
             <div className="camera-capture-review-actions">
               {selectedFrame.source === "camera" ? (
                 <button
