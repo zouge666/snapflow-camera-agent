@@ -49,7 +49,7 @@ export function ReviewTextForm({
           <div className="sample-card-heading">
             <div>
               <p className="section-kicker">Source image</p>
-              <h2>Northstar planning board</h2>
+              <h2>{sample.title}</h2>
             </div>
             <span className="status-pill status-pill--review">Synthetic sample</span>
           </div>

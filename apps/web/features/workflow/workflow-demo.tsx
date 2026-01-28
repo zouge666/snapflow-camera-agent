@@ -1,9 +1,10 @@
 "use client";
 
-import { useReducer, useRef } from "react";
+import { useReducer, useRef, useState } from "react";
 
 import { DemoStepper } from "../../app/_components/demo-stepper";
 import { CameraAccessPanel } from "../capture/camera-access-panel";
+import { SamplePicker } from "../capture/sample-picker";
 import { ReviewTextForm } from "../ocr-review/review-text-form";
 import type { ReviewTextFields } from "../ocr-review/review-text";
 import type { ReviewSample } from "../ocr-review/sample-review";
@@ -16,7 +17,7 @@ import { ActionPlanPanel } from "./action-plan-panel";
 import { initialWorkflowState, workflowReducer } from "./workflow-state";
 
 type WorkflowDemoProps = Readonly<{
-  sample: ReviewSample;
+  samples: readonly [ReviewSample, ...ReviewSample[]];
 }>;
 
 function toActionPlanRequest(fields: ReviewTextFields): ActionPlanRequest {
@@ -28,10 +29,13 @@ function toActionPlanRequest(fields: ReviewTextFields): ActionPlanRequest {
   };
 }
 
-export function WorkflowDemo({ sample }: WorkflowDemoProps) {
+export function WorkflowDemo({ samples }: WorkflowDemoProps) {
   const [state, dispatch] = useReducer(workflowReducer, initialWorkflowState);
+  const [selectedSampleId, setSelectedSampleId] = useState(samples[0].id);
   const lastRequest = useRef<ActionPlanRequest | null>(null);
   const requestVersion = useRef(0);
+  const selectedSample =
+    samples.find((sample) => sample.id === selectedSampleId) ?? samples[0];
 
   const runRequest = async (request: ActionPlanRequest) => {
     const version = requestVersion.current + 1;
@@ -63,6 +67,20 @@ export function WorkflowDemo({ sample }: WorkflowDemoProps) {
     dispatch({ type: "invalidate-plan" });
   };
 
+  const selectSample = (sampleId: string) => {
+    if (sampleId === selectedSample.id) {
+      return;
+    }
+
+    const sampleExists = samples.some((sample) => sample.id === sampleId);
+    if (!sampleExists) {
+      return;
+    }
+
+    invalidatePlan();
+    setSelectedSampleId(sampleId);
+  };
+
   return (
     <>
       <DemoStepper currentStep={state.status === "review" ? 1 : 2} />
@@ -76,9 +94,15 @@ export function WorkflowDemo({ sample }: WorkflowDemoProps) {
           any other external model.
         </p>
       </div>
+      <SamplePicker
+        samples={samples}
+        selectedSampleId={selectedSample.id}
+        onSelect={selectSample}
+      />
       <CameraAccessPanel />
       <ReviewTextForm
-        sample={sample}
+        key={selectedSample.id}
+        sample={selectedSample}
         isBuilding={state.status === "loading"}
         onBuildPlan={(fields) => void runRequest(toActionPlanRequest(fields))}
         onReviewChange={invalidatePlan}
