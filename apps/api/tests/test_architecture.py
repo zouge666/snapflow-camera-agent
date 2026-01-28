@@ -7,6 +7,7 @@ import pytest
 
 DOMAIN_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "domain"
 PROVIDERS_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "providers"
+TOOLS_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "tools"
 pytestmark = pytest.mark.unit
 
 
@@ -60,5 +61,35 @@ def test_mock_provider_has_no_network_client_dependency() -> None:
                 for module in modules
             ):
                 violations.append(str(path.relative_to(PROVIDERS_ROOT)))
+
+    assert violations == []
+
+
+def test_export_tools_have_no_file_system_dependency() -> None:
+    forbidden_roots = {"os", "pathlib", "shutil", "tempfile"}
+    violations: list[str] = []
+
+    for path in TOOLS_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                modules = [node.module or ""]
+            else:
+                modules = []
+
+            if any(
+                module.split(".", maxsplit=1)[0] in forbidden_roots
+                for module in modules
+            ):
+                violations.append(str(path.relative_to(TOOLS_ROOT)))
+
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "open"
+            ):
+                violations.append(str(path.relative_to(TOOLS_ROOT)))
 
     assert violations == []

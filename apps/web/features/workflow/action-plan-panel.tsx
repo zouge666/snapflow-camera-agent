@@ -1,4 +1,4 @@
-import type { ActionPlanResponse } from "./action-plan-client";
+import type { ActionPlanRequest, ActionPlanResponse } from "./action-plan-client";
 import { ActionReviewBoard } from "./action-review-board";
 import { EvidenceRangeView } from "./evidence-range";
 import type { WorkflowState } from "./workflow-state";
@@ -8,7 +8,10 @@ type ActionPlanPanelProps = Readonly<{
   onRetry: () => void;
 }>;
 
-function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
+function ReadyPlan({
+  plan,
+  request,
+}: Readonly<{ plan: ActionPlanResponse; request: ActionPlanRequest }>) {
   return (
     <>
       <div className="plan-summary">
@@ -29,7 +32,10 @@ function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
           </p>
         </div>
       ) : (
-        <ActionReviewBoard candidates={plan.candidate_actions} />
+        <ActionReviewBoard
+          candidates={plan.candidate_actions}
+          referenceDate={request.reference_date}
+        />
       )}
 
       {plan.clarifications.length > 0 ? (
@@ -92,7 +98,9 @@ export function ActionPlanPanel({ state, onRetry }: ActionPlanPanelProps) {
         </div>
       ) : null}
 
-      {state.status === "ready" ? <ReadyPlan plan={state.plan} /> : null}
+      {state.status === "ready" ? (
+        <ReadyPlan plan={state.plan} request={state.request} />
+      ) : null}
     </section>
   );
 }

@@ -11,7 +11,10 @@ import {
   type ActionReviewAction,
   type ActionReviewState,
 } from "../features/workflow/action-review";
-import { ActionReviewBoardView } from "../features/workflow/action-review-board";
+import {
+  ActionReviewBoardView,
+  initialIcsDownloadState,
+} from "../features/workflow/action-review-board";
 
 const candidates: readonly CandidateAction[] = [
   {
@@ -243,7 +246,9 @@ describe("action review interface", () => {
     const markup = renderToStaticMarkup(
       <ActionReviewBoardView
         state={createActionReviewState(candidates)}
+        exportState={initialIcsDownloadState}
         onAction={() => undefined}
+        onDownload={() => undefined}
       />,
     );
 
@@ -252,7 +257,9 @@ describe("action review interface", () => {
     expect(markup.match(/Pending review/g)).toHaveLength(3);
     expect(markup).toContain("0 approved");
     expect(markup).toContain("Nothing is approved by default.");
-    expect(markup).toContain("not submitted or exported yet");
+    expect(markup).toContain("local demo API only");
+    expect(markup).toContain("Download approved .ics");
+    expect(markup).toContain("disabled");
     expect(markup).not.toContain("Approve all");
   });
 
@@ -276,7 +283,12 @@ describe("action review interface", () => {
       { type: "decide", id: "action-2", decision: "approved" },
     );
     const markup = renderToStaticMarkup(
-      <ActionReviewBoardView state={edited} onAction={() => undefined} />,
+      <ActionReviewBoardView
+        state={edited}
+        exportState={initialIcsDownloadState}
+        onAction={() => undefined}
+        onDownload={() => undefined}
+      />,
     );
 
     expect(markup).toContain("Edited locally");
@@ -288,5 +300,6 @@ describe("action review interface", () => {
     expect(markup).toContain("Prepare the support FAQ before the pilot review.");
     expect(markup).toContain("Source characters 111–159");
     expect(markup).toContain("1 approved");
+    expect(markup).toContain("<dt>Calendar-ready</dt><dd>1</dd>");
   });
 });

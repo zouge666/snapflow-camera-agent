@@ -1861,6 +1861,122 @@ main:focus {
   font-size: 0.58rem;
 }
 
+.action-export-panel {
+  padding: clamp(2rem, 5vw, 3.5rem);
+  color: var(--paper);
+  background:
+    radial-gradient(circle at 92% 10%, rgb(199 246 92 / 16%), transparent 16rem),
+    var(--ink);
+}
+
+.action-export-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.7fr);
+  gap: 2rem;
+  align-items: end;
+}
+
+.action-export-heading .section-kicker {
+  color: var(--acid);
+}
+
+.action-export-heading h2 {
+  margin: 0.8rem 0 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 550;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.action-export-heading > p {
+  margin: 0;
+  color: rgb(255 253 248 / 62%);
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.export-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 2rem 0 0;
+}
+
+.export-counts > div {
+  padding: 1rem;
+  background: rgb(255 255 255 / 7%);
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: var(--radius-small);
+}
+
+.export-counts dt {
+  color: rgb(255 253 248 / 54%);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.export-counts dd {
+  margin: 0.55rem 0 0;
+  color: var(--acid);
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.8rem;
+}
+
+.export-warning,
+.export-error,
+.export-result {
+  margin: 1rem 0 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-small);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.export-warning {
+  color: #ffe8e2;
+  background: rgb(246 117 93 / 14%);
+  border: 1px solid rgb(246 117 93 / 38%);
+}
+
+.export-error {
+  color: #ffe8e2;
+  background: #69291f;
+}
+
+.export-result {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--ink);
+  background: var(--acid-soft);
+}
+
+.export-result span {
+  color: var(--forest-deep);
+}
+
+.action-export-button {
+  min-height: 3rem;
+  margin-top: 1.5rem;
+  cursor: pointer;
+}
+
+.action-export-button:disabled {
+  color: rgb(255 253 248 / 42%);
+  background: rgb(255 255 255 / 9%);
+  border-color: rgb(255 255 255 / 14%);
+  cursor: not-allowed;
+}
+
+.export-boundary-note {
+  margin: 0.75rem 0 0;
+  color: rgb(255 253 248 / 50%);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
 .clarification-list {
   padding: clamp(2rem, 6vw, 4.5rem);
   color: var(--paper);
@@ -2208,7 +2324,8 @@ main:focus {
     position: static;
   }
 
-  .action-review-heading {
+  .action-review-heading,
+  .action-export-heading {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
@@ -2312,6 +2429,10 @@ main:focus {
   }
 
   .action-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .export-counts {
     grid-template-columns: 1fr;
   }
 
