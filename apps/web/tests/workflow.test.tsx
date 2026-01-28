@@ -98,7 +98,12 @@ describe("temporary action-plan client", () => {
   it("posts only the confirmed text context and parses the typed response", async () => {
     let sentInput: string | URL | Request | undefined;
     let sentInit: RequestInit | undefined;
-    const result = await requestActionPlan(request, async (input, init) => {
+    const pollutedRequest = {
+      ...request,
+      image: "data:image/jpeg;base64,c2hvdWxkLW5vdC1sZWFr",
+      image_blob: new Blob(["should-not-leak"]),
+    } as ActionPlanRequest;
+    const result = await requestActionPlan(pollutedRequest, async (input, init) => {
       sentInput = input;
       sentInit = init;
       return Response.json(plan);

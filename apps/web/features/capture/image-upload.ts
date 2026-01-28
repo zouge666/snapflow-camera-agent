@@ -148,7 +148,9 @@ export async function browserImageDecoder(file: File): Promise<DecodedImageDimen
     throw new ImageUploadError("decode-failed");
   }
 
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, {
+    imageOrientation: "from-image",
+  });
   try {
     return {
       width: bitmap.width,

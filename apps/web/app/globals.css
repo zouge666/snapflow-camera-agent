@@ -1747,6 +1747,15 @@ main:focus {
   object-fit: contain;
 }
 
+.camera-processing-placeholder {
+  max-width: 24rem;
+  margin: 0;
+  color: rgb(255 253 248 / 74%);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .camera-capture-review-copy {
   padding: clamp(1.5rem, 4vw, 2.5rem);
   color: var(--paper);
@@ -1809,6 +1818,50 @@ main:focus {
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: capitalize;
+}
+
+.camera-image-tools {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 253 248 / 18%);
+  border-radius: var(--radius-small);
+}
+
+.camera-image-tool-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.camera-image-tools label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.camera-image-tools label > span {
+  color: rgb(255 253 248 / 58%);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.camera-image-tools select {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  color: var(--paper);
+  background: rgb(255 253 248 / 8%);
+  border: 1px solid rgb(255 253 248 / 24%);
+  border-radius: var(--radius-small);
+}
+
+.camera-image-tools > p {
+  margin: 0;
+  color: rgb(255 253 248 / 62%);
+  font-size: 0.68rem;
+  line-height: 1.5;
 }
 
 .camera-capture-review-actions {

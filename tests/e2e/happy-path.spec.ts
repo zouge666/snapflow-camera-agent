@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
@@ -114,4 +115,46 @@ test("sample review reaches a partial approved-only ICS download without a key",
   expect(calendar).not.toMatch(/support FAQ|pilot review/i);
   await expect(page.getByText("1 calendar event downloaded.")).toBeVisible();
   expect([...unexpectedOrigins]).toEqual([]);
+});
+
+test("a local image can be cropped and reset without an image upload", async ({
+  page,
+}) => {
+  const postRequests: Array<Readonly<{ url: string; body: string | null }>> = [];
+
+  page.on("request", (request) => {
+    if (request.method() === "POST") {
+      postRequests.push({
+        url: request.url(),
+        body: request.postData(),
+      });
+    }
+  });
+
+  await page.goto("/demo");
+  await page
+    .locator('.camera-access-actions input[type="file"]')
+    .setInputFiles(
+      resolve("apps/web/public/samples/northstar-planning/meeting-notes.png"),
+    );
+
+  await expect(page.getByRole("heading", { name: "Review this image." })).toBeVisible();
+  await expect(
+    page.getByText("The image stays on this device and has not been sent to the API."),
+  ).toBeVisible();
+  await expect(
+    page.getByAltText("Selected meeting notes awaiting confirmation"),
+  ).toHaveAttribute("src", /^blob:/);
+  await expect(page.getByText("1600 × 1000", { exact: true })).toBeVisible();
+
+  await page.getByLabel("Crop").selectOption("square");
+  await expect(page.getByText("1000 × 1000", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Rotate right" }).click();
+  await expect(
+    page.getByText("Preview re-encoded locally. Metadata removed."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Reset image" }).click();
+  await expect(page.getByText("1600 × 1000", { exact: true })).toBeVisible();
+
+  expect(postRequests).toEqual([]);
 });

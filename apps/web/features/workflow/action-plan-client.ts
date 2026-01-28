@@ -190,7 +190,7 @@ export async function requestActionPlan(
     response = await fetcher(ACTION_PLAN_PATH, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
+      body: serializeActionPlanRequest(request),
     });
   } catch {
     throw new ActionPlanClientError(
@@ -215,4 +215,13 @@ export async function requestActionPlan(
   }
 
   return parseActionPlanResponse(body);
+}
+
+export function serializeActionPlanRequest(request: ActionPlanRequest): string {
+  return JSON.stringify({
+    source_text: request.source_text,
+    locale: request.locale,
+    timezone: request.timezone,
+    reference_date: request.reference_date,
+  });
 }
