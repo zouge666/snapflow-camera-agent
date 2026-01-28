@@ -1,5 +1,7 @@
 export type CameraAvailability = "available" | "insecure-context" | "unsupported";
 
+export type CameraFacingMode = "environment" | "user";
+
 export type CameraPermissionStatus =
   "idle" | "requesting" | "granted" | "denied" | "unavailable" | "error";
 
@@ -24,12 +26,14 @@ export const initialCameraPermissionState: CameraPermissionState = {
   status: "idle",
 };
 
-export function createCameraConstraints(): MediaStreamConstraints {
+export function createCameraConstraints(
+  facingMode: CameraFacingMode = "environment",
+): MediaStreamConstraints {
   return {
     audio: false,
     video: {
       facingMode: {
-        ideal: "environment",
+        ideal: facingMode,
       },
     },
   };
