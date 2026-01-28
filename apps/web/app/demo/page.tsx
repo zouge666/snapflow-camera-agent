@@ -20,9 +20,9 @@ export default function DemoPage() {
           <h1>Fix the text before AI turns it into work.</h1>
         </div>
         <p>
-          Start with a synthetic meeting image and its fixture transcript. Confirm the
-          text, then ask the deterministic demo API to return traceable candidate
-          actions.
+          Ask for camera access only when you choose, or continue with the synthetic
+          meeting fixture. Confirm the text, then ask the deterministic demo API to
+          return traceable candidate actions.
         </p>
       </div>
 
