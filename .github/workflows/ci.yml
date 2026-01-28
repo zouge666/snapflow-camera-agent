@@ -105,6 +105,58 @@ jobs:
           --cov-config=apps/api/pyproject.toml
           --cov-report=term-missing
 
+  e2e:
+    name: E2E happy path
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: test
+      MODEL_PROVIDER: mock
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11.13.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            apps/api/pyproject.toml
+
+      - name: Show tool versions
+        run: |
+          node --version
+          pnpm --version
+          python --version
+
+      - name: Install application dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run the mock happy path
+        run: pnpm test:e2e
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-24.04

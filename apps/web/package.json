@@ -6,8 +6,8 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --config prettier.config.mjs --write . ../../tests/e2e",
+    "format:check": "prettier --config prettier.config.mjs --check . ../../tests/e2e",
     "lint": "eslint . --max-warnings=0",
     "start": "next start",
     "test": "vitest run",
