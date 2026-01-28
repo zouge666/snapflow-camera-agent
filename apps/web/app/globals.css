@@ -1454,6 +1454,34 @@ main:focus {
   font-size: 0.78rem;
 }
 
+.camera-upload-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.camera-upload-button.is-disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.camera-upload-button:focus-within {
+  outline: 0.2rem solid var(--focus);
+  outline-offset: 0.2rem;
+}
+
+.camera-upload-button input,
+.camera-upload-review-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .camera-facing-field {
   display: grid;
   gap: 0.4rem;
@@ -1594,6 +1622,16 @@ main:focus {
   color: rgb(255 253 248 / 72%);
   font-size: 0.78rem;
   line-height: 1.6;
+}
+
+.camera-capture-review-copy .camera-capture-file-name {
+  padding: 0.75rem 0;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid rgb(255 253 248 / 18%);
+}
+
+.camera-capture-file-name strong {
+  color: var(--paper);
 }
 
 .camera-capture-review-copy dl {
