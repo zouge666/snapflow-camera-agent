@@ -3,6 +3,7 @@
 import { useReducer, useRef } from "react";
 
 import { DemoStepper } from "../../app/_components/demo-stepper";
+import { CameraAccessPanel } from "../capture/camera-access-panel";
 import { ReviewTextForm } from "../ocr-review/review-text-form";
 import type { ReviewTextFields } from "../ocr-review/review-text";
 import type { ReviewSample } from "../ocr-review/sample-review";
@@ -75,6 +76,7 @@ export function WorkflowDemo({ sample }: WorkflowDemoProps) {
           any other external model.
         </p>
       </div>
+      <CameraAccessPanel />
       <ReviewTextForm
         sample={sample}
         isBuilding={state.status === "loading"}

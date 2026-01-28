@@ -1343,6 +1343,117 @@ main:focus {
   text-align: right;
 }
 
+.camera-access-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1.25rem;
+  align-items: start;
+  margin-top: 1.25rem;
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-medium);
+  box-shadow: 0 1.2rem 3rem rgb(37 43 38 / 7%);
+}
+
+.camera-access-glyph {
+  display: grid;
+  width: 3.25rem;
+  height: 3.25rem;
+  background: var(--ink);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.4rem rgb(20 32 28 / 8%);
+  place-items: center;
+}
+
+.camera-access-glyph span {
+  width: 1.35rem;
+  height: 1rem;
+  border: 0.15rem solid var(--acid);
+  border-radius: 0.25rem;
+}
+
+.camera-access-copy .section-kicker {
+  margin-bottom: 0.45rem;
+}
+
+.camera-access-copy > h2 {
+  margin: 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 550;
+  letter-spacing: -0.035em;
+}
+
+.camera-access-copy > p {
+  max-width: 43rem;
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.camera-access-status {
+  display: flex;
+  gap: 0.65rem;
+  align-items: start;
+  max-width: 43rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.camera-access-status > span {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.25rem;
+  background: var(--muted);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.22rem rgb(91 101 95 / 12%);
+}
+
+.camera-access-status--requesting > span {
+  background: var(--coral);
+  box-shadow: 0 0 0 0.22rem rgb(246 117 93 / 14%);
+}
+
+.camera-access-status--granted > span {
+  background: var(--forest);
+  box-shadow: 0 0 0 0.22rem rgb(23 79 62 / 14%);
+}
+
+.camera-access-status--denied > span,
+.camera-access-status--unavailable > span,
+.camera-access-status--error > span {
+  background: #9b3a2c;
+  box-shadow: 0 0 0 0.22rem rgb(155 58 44 / 13%);
+}
+
+.camera-access-status strong {
+  display: block;
+  font-size: 0.76rem;
+}
+
+.camera-access-status p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.camera-access-actions {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 13rem;
+}
+
+.camera-access-actions .button {
+  min-height: 2.75rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
 .provider-dot {
   width: 0.5rem;
   height: 0.5rem;
@@ -2308,7 +2419,8 @@ main:focus {
   .principles-inner,
   .page-intro,
   .workspace-grid,
-  .review-layout {
+  .review-layout,
+  .camera-access-card {
     grid-template-columns: 1fr;
   }
 
@@ -2413,6 +2525,10 @@ main:focus {
 
   .demo-provider-banner p {
     text-align: left;
+  }
+
+  .camera-access-actions {
+    width: 100%;
   }
 
   .confirmation-success .button--accent {

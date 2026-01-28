@@ -27,15 +27,17 @@ describe("product shell", () => {
     expect(markup).not.toMatch(/pricing|early access/i);
   });
 
-  it("renders a four-step workspace at the review checkpoint", () => {
+  it("renders a four-step workspace with an optional camera entry", () => {
     const markup = renderToStaticMarkup(<DemoPage />);
 
     expect(markup.match(/<li(?:\s|>)/g)).toHaveLength(4);
     expect(markup).toContain('aria-current="step"');
     expect(markup).toContain("Human review checkpoint");
+    expect(markup).toContain("Use your camera when you choose.");
+    expect(markup).toContain("Nothing is requested on page load.");
     expect(markup).toContain("Review the sample transcript");
     expect(markup).toContain("Demo provider");
-    expect(markup).not.toContain("Use camera");
+    expect(markup).toContain("Use camera");
   });
 
   it("uses the injected source URL in shared navigation", () => {
