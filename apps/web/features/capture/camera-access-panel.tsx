@@ -13,11 +13,18 @@ import type {
   CameraMediaAdapter,
   CameraPermissionState,
 } from "./camera-permission";
+import {
+  getImageUploadErrorMessage,
+  imagePickerAccept,
+  loadImageFile,
+  type ImageFileLoader,
+} from "./image-upload";
 import { useCameraPermission } from "./use-camera-permission";
 
 type CameraAccessPanelProps = Readonly<{
   adapter?: CameraMediaAdapter;
   captureFrame?: FrameCapture;
+  loadFile?: ImageFileLoader;
 }>;
 
 type CameraPreviewProps = Readonly<{
@@ -28,13 +35,19 @@ type CameraPreviewProps = Readonly<{
   onCaptureError: () => void;
 }>;
 
+type SelectedFrame = Readonly<{
+  frame: CapturedFrame;
+  source: "camera" | "upload";
+  fileName?: string;
+}>;
+
 const statusCopy: Readonly<
   Record<CameraPermissionState["status"], Readonly<{ title: string; detail: string }>>
 > = {
   idle: {
     title: "Camera access is off.",
     detail:
-      "Nothing is requested on page load. Choose a camera, then press the button when you want to grant access.",
+      "Nothing is requested on page load. Start a camera when you want, or choose a local image instead.",
   },
   requesting: {
     title: "Waiting for your browser.",
@@ -48,17 +61,17 @@ const statusCopy: Readonly<
   denied: {
     title: "Camera access was blocked.",
     detail:
-      "You can change this site's camera permission in your browser settings, retry, or continue with the synthetic sample.",
+      "Change this site's permission in browser settings, retry, choose a local image, or continue with the synthetic sample.",
   },
   unavailable: {
     title: "Camera access is unavailable.",
     detail:
-      "Use HTTPS or localhost in a browser with camera support, or continue with the synthetic sample.",
+      "Use HTTPS or localhost with camera support, choose a local image, or continue with the synthetic sample.",
   },
   error: {
     title: "The camera could not start.",
     detail:
-      "The device may be busy. Close other camera apps, then try again or use the synthetic sample.",
+      "The device may be busy. Try again, choose a local image, or use the synthetic sample.",
   },
 };
 
@@ -139,23 +152,41 @@ function CameraPreview({
 export function CameraAccessPanel({
   adapter,
   captureFrame = captureVideoFrame,
+  loadFile = loadImageFile,
 }: CameraAccessPanelProps) {
   const camera = useCameraPermission(adapter);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadVersionRef = useRef(0);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
-  const [capturedFrame, setCapturedFrame] = useState<CapturedFrame | null>(null);
+  const [selectedFrame, setSelectedFrame] = useState<SelectedFrame | null>(null);
   const [captureError, setCaptureError] = useState(false);
+  const [uploadState, setUploadState] = useState<
+    Readonly<{ status: "idle" | "validating" | "error"; message?: string }>
+  >({ status: "idle" });
   const copy = statusCopy[camera.state.status];
   const isRequesting = camera.state.status === "requesting";
   const isGranted = camera.state.status === "granted" && camera.stream !== null;
+  const isUploadValidating = uploadState.status === "validating";
+  const isBusy = isRequesting || isUploadValidating;
   const isError =
     camera.state.status === "denied" ||
     camera.state.status === "unavailable" ||
-    camera.state.status === "error";
+    camera.state.status === "error" ||
+    uploadState.status === "error";
+
+  useEffect(
+    () => () => {
+      uploadVersionRef.current += 1;
+    },
+    [],
+  );
 
   const stopAndUseSample = () => {
+    uploadVersionRef.current += 1;
     camera.releaseCamera();
-    setCapturedFrame(null);
+    setSelectedFrame(null);
     setCaptureError(false);
+    setUploadState({ status: "idle" });
     document.getElementById("review-title")?.scrollIntoView({
       behavior: "smooth",
       block: "start",
@@ -163,16 +194,67 @@ export function CameraAccessPanel({
   };
 
   const handleCapture = (frame: CapturedFrame) => {
-    setCapturedFrame(frame);
+    uploadVersionRef.current += 1;
+    setSelectedFrame({
+      frame,
+      source: "camera",
+    });
     setCaptureError(false);
+    setUploadState({ status: "idle" });
     camera.releaseCamera();
   };
 
   const retake = () => {
-    setCapturedFrame(null);
+    uploadVersionRef.current += 1;
+    setSelectedFrame(null);
     setCaptureError(false);
+    setUploadState({ status: "idle" });
     void camera.requestCamera(facingMode);
   };
+
+  const startCamera = () => {
+    uploadVersionRef.current += 1;
+    setUploadState({ status: "idle" });
+    void camera.requestCamera(facingMode);
+  };
+
+  const handleFileSelection = async (file: File | undefined) => {
+    if (file === undefined) {
+      return;
+    }
+
+    const uploadVersion = uploadVersionRef.current + 1;
+    uploadVersionRef.current = uploadVersion;
+    camera.releaseCamera();
+    setSelectedFrame(null);
+    setCaptureError(false);
+    setUploadState({ status: "validating" });
+
+    try {
+      const frame = await loadFile(file);
+      if (uploadVersionRef.current === uploadVersion) {
+        setSelectedFrame({
+          frame,
+          source: "upload",
+          fileName: file.name,
+        });
+        setUploadState({ status: "idle" });
+      }
+    } catch (error) {
+      if (uploadVersionRef.current === uploadVersion) {
+        setUploadState({
+          status: "error",
+          message: getImageUploadErrorMessage(error),
+        });
+      }
+    }
+  };
+
+  const chooseAnotherImage = () => {
+    uploadInputRef.current?.click();
+  };
+
+  const selectedImage = selectedFrame?.frame ?? null;
 
   return (
     <section className="camera-access-card" aria-labelledby="camera-access-title">
@@ -185,12 +267,14 @@ export function CameraAccessPanel({
         <p>
           SnapFlow asks for camera access only after a click. Browsers require a secure
           HTTPS page or localhost. Use the deployed HTTPS version for reliable phone
-          testing.
+          testing. Local fallback accepts JPEG or PNG files up to 10 MiB.
         </p>
-        {capturedFrame === null ? (
+        {selectedImage === null ? (
           <div
             className={`camera-access-status camera-access-status--${
-              captureError ? "error" : camera.state.status
+              captureError || uploadState.status === "error"
+                ? "error"
+                : camera.state.status
             }`}
             role={isError || captureError ? "alert" : "status"}
             aria-live={isError || captureError ? "assertive" : "polite"}
@@ -198,24 +282,34 @@ export function CameraAccessPanel({
             <span aria-hidden="true" />
             <div>
               <strong>
-                {captureError ? "The frame could not be captured." : copy.title}
+                {captureError
+                  ? "The frame could not be captured."
+                  : uploadState.status === "validating"
+                    ? "Checking the selected image."
+                    : uploadState.status === "error"
+                      ? "The selected image was not accepted."
+                      : copy.title}
               </strong>
               <p>
                 {captureError
                   ? "Wait for the preview to settle, then try the capture again."
-                  : copy.detail}
+                  : uploadState.status === "validating"
+                    ? "The file stays in this browser while its type, size, and dimensions are validated."
+                    : uploadState.status === "error"
+                      ? uploadState.message
+                      : copy.detail}
               </p>
             </div>
           </div>
         ) : null}
       </div>
-      {capturedFrame === null ? (
+      {selectedImage === null ? (
         <div className="camera-access-actions">
           <label className="camera-facing-field">
             <span>Camera</span>
             <select
               value={facingMode}
-              disabled={isRequesting}
+              disabled={isBusy}
               onChange={(event) => {
                 const nextFacingMode = event.target.value as CameraFacingMode;
                 setFacingMode(nextFacingMode);
@@ -233,6 +327,7 @@ export function CameraAccessPanel({
             <button
               className="button button--quiet"
               type="button"
+              disabled={isUploadValidating}
               onClick={camera.releaseCamera}
             >
               Turn camera off
@@ -241,22 +336,41 @@ export function CameraAccessPanel({
             <button
               className="button button--primary"
               type="button"
-              disabled={isRequesting}
-              onClick={() => void camera.requestCamera(facingMode)}
+              disabled={isBusy}
+              onClick={startCamera}
             >
               {isRequesting ? "Requesting camera…" : "Use camera"}
             </button>
           )}
+          <label
+            className={`button button--quiet camera-upload-button${
+              isUploadValidating ? " is-disabled" : ""
+            }`}
+          >
+            <span>{isUploadValidating ? "Checking image…" : "Choose image"}</span>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept={imagePickerAccept}
+              disabled={isUploadValidating}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                void handleFileSelection(file);
+              }}
+            />
+          </label>
           <button
             className="button button--quiet"
             type="button"
+            disabled={isUploadValidating}
             onClick={stopAndUseSample}
           >
             Continue with sample
           </button>
         </div>
       ) : null}
-      {isGranted && capturedFrame === null ? (
+      {isGranted && selectedImage === null ? (
         <CameraPreview
           facingMode={facingMode}
           stream={camera.stream}
@@ -265,40 +379,84 @@ export function CameraAccessPanel({
           onCaptureError={() => setCaptureError(true)}
         />
       ) : null}
-      {capturedFrame !== null ? (
+      {selectedFrame !== null ? (
         <div className="camera-capture-review">
           <div className="camera-capture-review-image">
             <Image
-              src={capturedFrame.dataUrl}
-              alt="Captured meeting notes awaiting confirmation"
-              width={capturedFrame.width}
-              height={capturedFrame.height}
+              src={selectedFrame.frame.dataUrl}
+              alt={
+                selectedFrame.source === "camera"
+                  ? "Captured meeting notes awaiting confirmation"
+                  : "Selected meeting notes awaiting confirmation"
+              }
+              width={selectedFrame.frame.width}
+              height={selectedFrame.frame.height}
               unoptimized
             />
           </div>
           <div className="camera-capture-review-copy">
-            <p className="section-kicker">Static frame</p>
-            <h3>Review this capture.</h3>
-            <p>
-              The camera is off. This {capturedFrame.orientation} frame stays in browser
-              memory and has not been uploaded.
+            <p className="section-kicker">
+              {selectedFrame.source === "camera" ? "Static frame" : "Local image"}
             </p>
+            <h3>
+              {selectedFrame.source === "camera"
+                ? "Review this capture."
+                : "Review this image."}
+            </h3>
+            <p>
+              The camera is off. This {selectedFrame.frame.orientation} image stays in
+              browser memory and has not been sent to the API.
+            </p>
+            {selectedFrame.fileName ? (
+              <p className="camera-capture-file-name">
+                Selected file: <strong>{selectedFrame.fileName}</strong>
+              </p>
+            ) : null}
             <dl>
               <div>
                 <dt>Dimensions</dt>
                 <dd>
-                  {capturedFrame.width} × {capturedFrame.height}
+                  {selectedFrame.frame.width} × {selectedFrame.frame.height}
                 </dd>
               </div>
               <div>
                 <dt>Orientation</dt>
-                <dd>{capturedFrame.orientation}</dd>
+                <dd>{selectedFrame.frame.orientation}</dd>
               </div>
             </dl>
             <div className="camera-capture-review-actions">
-              <button className="button button--primary" type="button" onClick={retake}>
-                Retake
-              </button>
+              {selectedFrame.source === "camera" ? (
+                <button
+                  className="button button--primary"
+                  type="button"
+                  onClick={retake}
+                >
+                  Retake
+                </button>
+              ) : (
+                <button
+                  className="button button--primary"
+                  type="button"
+                  onClick={chooseAnotherImage}
+                >
+                  Choose another image
+                </button>
+              )}
+              {selectedFrame.source === "upload" ? (
+                <input
+                  ref={uploadInputRef}
+                  className="camera-upload-review-input"
+                  type="file"
+                  accept={imagePickerAccept}
+                  aria-label="Choose another local image"
+                  tabIndex={-1}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    void handleFileSelection(file);
+                  }}
+                />
+              ) : null}
               <button
                 className="button button--quiet"
                 type="button"
