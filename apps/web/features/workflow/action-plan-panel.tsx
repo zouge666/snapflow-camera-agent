@@ -1,21 +1,12 @@
-import type { ActionPlanResponse, EvidenceRange } from "./action-plan-client";
+import type { ActionPlanResponse } from "./action-plan-client";
+import { ActionReviewBoard } from "./action-review-board";
+import { EvidenceRangeView } from "./evidence-range";
 import type { WorkflowState } from "./workflow-state";
 
 type ActionPlanPanelProps = Readonly<{
   state: WorkflowState;
   onRetry: () => void;
 }>;
-
-function Evidence({ range }: Readonly<{ range: EvidenceRange }>) {
-  return (
-    <div className="action-evidence">
-      <blockquote>“{range.quote}”</blockquote>
-      <span>
-        Source characters {range.start}–{range.end}
-      </span>
-    </div>
-  );
-}
 
 function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
   return (
@@ -24,8 +15,8 @@ function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
         <p className="section-kicker">Plan summary</p>
         <h2 id="action-plan-title">{plan.summary}</h2>
         <p>
-          These are deterministic candidates for review, not approved tasks. Unknown
-          values stay unknown.
+          These are deterministic candidates, not approved tasks. Review every item;
+          unknown values stay unknown until you explicitly edit them.
         </p>
       </div>
 
@@ -38,62 +29,7 @@ function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
           </p>
         </div>
       ) : (
-        <ol className="candidate-list" aria-label="Candidate actions">
-          {plan.candidate_actions.map((candidate, index) => (
-            <li className="candidate-card" key={candidate.id}>
-              <div className="candidate-heading">
-                <span className="candidate-number">
-                  Candidate {String(index + 1).padStart(2, "0")}
-                </span>
-                <span className="candidate-id">{candidate.id}</span>
-              </div>
-              <h3>{candidate.title}</h3>
-              <dl className="candidate-fields">
-                <div>
-                  <dt>Owner</dt>
-                  <dd className={candidate.owner === null ? "is-unknown" : undefined}>
-                    {candidate.owner ?? "unknown"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Date</dt>
-                  <dd
-                    className={
-                      candidate.due?.iso_date == null ? "is-unknown" : undefined
-                    }
-                  >
-                    {candidate.due?.iso_date ?? "unknown"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Priority</dt>
-                  <dd
-                    className={
-                      candidate.priority === "unknown" ? "is-unknown" : undefined
-                    }
-                  >
-                    {candidate.priority}
-                  </dd>
-                </div>
-              </dl>
-              {candidate.due ? (
-                <p className="due-source">
-                  Interpreted from <q>{candidate.due.raw_text}</q> ·{" "}
-                  {candidate.due.resolution}
-                </p>
-              ) : null}
-              <div className="candidate-evidence-list">
-                <strong>Evidence</strong>
-                {candidate.evidence.map((range) => (
-                  <Evidence
-                    key={`${candidate.id}-${range.start}-${range.end}`}
-                    range={range}
-                  />
-                ))}
-              </div>
-            </li>
-          ))}
-        </ol>
+        <ActionReviewBoard candidates={plan.candidate_actions} />
       )}
 
       {plan.clarifications.length > 0 ? (
@@ -109,7 +45,7 @@ function ReadyPlan({ plan }: Readonly<{ plan: ActionPlanResponse }>) {
               <h3>{clarification.question}</h3>
               <p>{clarification.reason}</p>
               {clarification.evidence ? (
-                <Evidence range={clarification.evidence} />
+                <EvidenceRangeView range={clarification.evidence} />
               ) : null}
             </article>
           ))}

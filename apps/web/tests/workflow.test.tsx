@@ -241,8 +241,10 @@ describe("workflow states", () => {
     expect(markup).toContain("Alex: Send the revised onboarding checklist by Friday.");
     expect(markup).toContain("What date is the pilot review");
     expect(markup).toContain("Mock contract · schema 1.0");
-    expect(markup).not.toContain(">Approve<");
-    expect(markup).not.toContain(">Reject<");
+    expect(markup.match(/>Approve</g)).toHaveLength(plan.candidate_actions.length);
+    expect(markup.match(/>Reject</g)).toHaveLength(plan.candidate_actions.length);
+    expect(markup).toContain("Nothing is approved by default.");
+    expect(markup).not.toContain("Approve all");
   });
 
   it("has no automatic axe violations in the populated action plan", async () => {
