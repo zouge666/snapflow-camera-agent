@@ -1,36 +1,17 @@
-import type { EvidenceRange } from "./action-plan-client";
+import type {
+  ApprovedActionItem as GeneratedApprovedActionExportItem,
+  IcsExportRequest,
+  IcsExportResponse,
+  IcsExportWarning,
+} from "../../lib/api/generated/types.gen";
 import type { ApprovedActionItem } from "./action-review";
 
-export type ApprovedActionExportItem = Readonly<{
-  id: string;
-  title: string;
-  owner: string | null;
-  due_date: string | null;
-  priority: ApprovedActionItem["priority"];
-  evidence: readonly EvidenceRange[];
-  decision: "approved";
-}>;
-
-export type IcsExportRequest = Readonly<{
-  schema_version: "1.0";
-  reference_date: string;
-  approved_items: readonly ApprovedActionExportItem[];
-}>;
-
-export type IcsExportWarning = Readonly<{
-  action_id: string;
-  code: "missing_due_date";
-  message: string;
-}>;
-
-export type IcsExportResponse = Readonly<{
-  schema_version: "1.0";
-  filename: "snapflow-approved-actions.ics";
-  content_type: "text/calendar; charset=utf-8";
-  content: string;
-  exported_action_ids: readonly string[];
-  warnings: readonly IcsExportWarning[];
-}>;
+export type ApprovedActionExportItem = GeneratedApprovedActionExportItem;
+export type {
+  IcsExportRequest,
+  IcsExportResponse,
+  IcsExportWarning,
+} from "../../lib/api/generated/types.gen";
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -69,7 +50,7 @@ function readString(value: unknown): string {
   return value;
 }
 
-function readStringArray(value: unknown): readonly string[] {
+function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return invalidContract();
   }
@@ -101,7 +82,7 @@ export function createIcsExportRequest(
       owner: item.owner,
       due_date: item.dueDate,
       priority: item.priority,
-      evidence: item.evidence,
+      evidence: [...item.evidence],
       decision: "approved",
     })),
   };

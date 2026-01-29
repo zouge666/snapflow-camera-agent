@@ -38,6 +38,9 @@ class ExportApprovedIcs:
             reference_date=request.reference_date,
         )
         return IcsExportResponse(
+            schema_version="1.0",
+            filename="snapflow-approved-actions.ics",
+            content_type="text/calendar; charset=utf-8",
             content=result.content,
             exported_action_ids=result.exported_action_ids,
             warnings=result.warnings,

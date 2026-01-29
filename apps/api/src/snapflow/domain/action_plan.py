@@ -5,7 +5,12 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from snapflow.domain.time_context import validate_timezone_name
+
 MAX_SOURCE_CHARS = 12_000
+MAX_EVIDENCE_QUOTE_CHARS = 2_000
+MAX_OWNER_CHARS = 120
+MAX_DUE_TEXT_CHARS = 240
 
 
 class ActionPlanRequest(BaseModel):
@@ -27,7 +32,7 @@ class ActionPlanRequest(BaseModel):
             raise ValueError(message)
         return value
 
-    @field_validator("locale", "timezone")
+    @field_validator("locale")
     @classmethod
     def context_value_must_contain_content(cls, value: str) -> str:
         """Normalize harmless outer whitespace on short context values."""
@@ -37,15 +42,32 @@ class ActionPlanRequest(BaseModel):
             raise ValueError(message)
         return normalized
 
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_available(cls, value: str) -> str:
+        """Require explicit IANA context instead of a server timezone default."""
+        if not value.strip():
+            message = "context value must contain non-whitespace text"
+            raise ValueError(message)
+        return validate_timezone_name(value)
+
 
 class EvidenceRange(BaseModel):
     """Character offsets into the exact source text sent by the user."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    quote: str = Field(min_length=1)
+    quote: str = Field(min_length=1, max_length=MAX_EVIDENCE_QUOTE_CHARS)
     start: int = Field(ge=0)
     end: int = Field(gt=0)
+
+    @field_validator("quote")
+    @classmethod
+    def quote_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            message = "evidence quote must contain non-whitespace text"
+            raise ValueError(message)
+        return value
 
     @model_validator(mode="after")
     def end_must_follow_start(self) -> Self:
@@ -62,8 +84,16 @@ class CandidateDue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     iso_date: date | None
-    raw_text: str = Field(min_length=1)
+    raw_text: str = Field(min_length=1, max_length=MAX_DUE_TEXT_CHARS)
     resolution: Literal["absolute", "relative", "ambiguous"]
+
+    @field_validator("raw_text")
+    @classmethod
+    def raw_text_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            message = "due raw text must contain non-whitespace text"
+            raise ValueError(message)
+        return value
 
 
 class CandidateAction(BaseModel):
@@ -73,10 +103,26 @@ class CandidateAction(BaseModel):
 
     id: str = Field(pattern=r"^action-[1-9][0-9]*$")
     title: str = Field(min_length=1, max_length=240)
-    owner: str | None
+    owner: str | None = Field(max_length=MAX_OWNER_CHARS)
     due: CandidateDue | None
     priority: Literal["low", "medium", "high", "unknown"]
     evidence: tuple[EvidenceRange, ...] = Field(min_length=1)
+
+    @field_validator("title")
+    @classmethod
+    def title_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            message = "action title must contain non-whitespace text"
+            raise ValueError(message)
+        return value
+
+    @field_validator("owner")
+    @classmethod
+    def owner_must_contain_content(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            message = "action owner must contain non-whitespace text"
+            raise ValueError(message)
+        return value
 
 
 class Clarification(BaseModel):
@@ -85,10 +131,18 @@ class Clarification(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(pattern=r"^clarification-[1-9][0-9]*$")
-    field_path: str = Field(min_length=1)
+    field_path: str = Field(min_length=1, max_length=240)
     question: str = Field(min_length=1, max_length=300)
     reason: str = Field(min_length=1, max_length=500)
     evidence: EvidenceRange | None
+
+    @field_validator("field_path", "question", "reason")
+    @classmethod
+    def text_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            message = "clarification text must contain non-whitespace text"
+            raise ValueError(message)
+        return value
 
 
 class ActionPlanResponse(BaseModel):
@@ -96,8 +150,28 @@ class ActionPlanResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
-    provider: Literal["mock"] = "mock"
+    schema_version: Literal["1.0"]
+    provider: Literal["mock"]
     summary: str = Field(min_length=1, max_length=300)
     candidate_actions: tuple[CandidateAction, ...]
     clarifications: tuple[Clarification, ...]
+
+    @field_validator("summary")
+    @classmethod
+    def summary_must_contain_content(cls, value: str) -> str:
+        if not value.strip():
+            message = "summary must contain non-whitespace text"
+            raise ValueError(message)
+        return value
+
+    @model_validator(mode="after")
+    def entity_ids_must_be_unique(self) -> Self:
+        action_ids = [action.id for action in self.candidate_actions]
+        if len(action_ids) != len(set(action_ids)):
+            message = "candidate action ids must be unique"
+            raise ValueError(message)
+        clarification_ids = [item.id for item in self.clarifications]
+        if len(clarification_ids) != len(set(clarification_ids)):
+            message = "clarification ids must be unique"
+            raise ValueError(message)
+        return self

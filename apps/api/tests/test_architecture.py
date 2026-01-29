@@ -2,8 +2,12 @@
 
 import ast
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
+
+from snapflow.domain.action_plan import ActionPlanResponse
+from snapflow.providers.mock import MockProvider
 
 DOMAIN_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "domain"
 PROVIDERS_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "providers"
@@ -63,6 +67,12 @@ def test_mock_provider_has_no_network_client_dependency() -> None:
                 violations.append(str(path.relative_to(PROVIDERS_ROOT)))
 
     assert violations == []
+
+
+def test_provider_returns_a_validated_domain_model_not_a_raw_mapping() -> None:
+    return_type = get_type_hints(MockProvider.build_plan)["return"]
+
+    assert return_type is ActionPlanResponse
 
 
 def test_export_tools_have_no_file_system_dependency() -> None:

@@ -46,7 +46,7 @@ def test_tool_exports_only_typed_approved_dated_items_without_writing_files(
             action_id="action-1",
             title=r"Send checklist, confirm scope; keep \ notes",
             owner="Alex",
-            due_date=date(2026, 7, 17),
+            due_date=date(2026, 1, 16),
         ),
         approved_item(
             action_id="action-2",
@@ -58,7 +58,7 @@ def test_tool_exports_only_typed_approved_dated_items_without_writing_files(
             action_id="action-3",
             title="Book the pilot review",
             owner=None,
-            due_date=date(2026, 7, 22),
+            due_date=date(2026, 1, 22),
         ),
     )
 
@@ -67,8 +67,8 @@ def test_tool_exports_only_typed_approved_dated_items_without_writing_files(
 
     monkeypatch.setattr(builtins, "open", reject_file_access)
     exporter = IcsExporter()
-    first = exporter.export(items, reference_date=date(2026, 7, 16))
-    second = exporter.export(items, reference_date=date(2026, 7, 16))
+    first = exporter.export(items, reference_date=date(2026, 1, 15))
+    second = exporter.export(items, reference_date=date(2026, 1, 15))
 
     assert first == second
     assert first.exported_action_ids == ("action-1", "action-3")
@@ -80,15 +80,15 @@ def test_tool_exports_only_typed_approved_dated_items_without_writing_files(
     assert first.content.count("BEGIN:VEVENT") == 2
     assert "SUMMARY:Prepare the support FAQ" not in first.content
 
-    calendar = Calendar.from_ical(first.content.encode("utf-8"))
+    calendar = Calendar.from_ical(first.content)
     events = list(calendar.walk("VEVENT"))
 
     assert calendar["VERSION"] == "2.0"
     assert len(events) == 2
     assert str(events[0]["SUMMARY"]) == r"Send checklist, confirm scope; keep \ notes"
     assert str(events[0]["DESCRIPTION"]) == "Owner: Alex"
-    assert events[0].decoded("DTSTART") == date(2026, 7, 17)
-    assert events[1].decoded("DTSTART") == date(2026, 7, 22)
+    assert events[0].decoded("DTSTART") == date(2026, 1, 16)
+    assert events[1].decoded("DTSTART") == date(2026, 1, 22)
     assert "DESCRIPTION" not in events[1]
 
 
@@ -97,7 +97,7 @@ def test_contract_rejects_items_that_are_not_explicitly_approved() -> None:
         action_id="action-1",
         title="Send checklist",
         owner="Alex",
-        due_date=date(2026, 7, 17),
+        due_date=date(2026, 1, 16),
     ).model_dump(mode="json")
     payload["decision"] = "rejected"
 
@@ -107,7 +107,8 @@ def test_contract_rejects_items_that_are_not_explicitly_approved() -> None:
 
 def test_application_returns_download_metadata_for_an_empty_valid_calendar() -> None:
     request = IcsExportRequest(
-        reference_date=date(2026, 7, 16),
+        schema_version="1.0",
+        reference_date=date(2026, 1, 15),
         approved_items=(
             approved_item(
                 action_id="action-2",
@@ -119,7 +120,7 @@ def test_application_returns_download_metadata_for_an_empty_valid_calendar() -> 
     )
 
     response = ExportApprovedIcs(tool=IcsExporter()).execute(request)
-    calendar = Calendar.from_ical(response.content.encode("utf-8"))
+    calendar = Calendar.from_ical(response.content)
 
     assert response.schema_version == "1.0"
     assert response.filename == "snapflow-approved-actions.ics"

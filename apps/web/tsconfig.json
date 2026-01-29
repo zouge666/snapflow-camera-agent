@@ -32,5 +32,12 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "lib/api/generated/client/**",
+    "lib/api/generated/core/**",
+    "lib/api/generated/client.gen.ts",
+    "lib/api/generated/index.ts",
+    "lib/api/generated/sdk.gen.ts"
+  ]
 }

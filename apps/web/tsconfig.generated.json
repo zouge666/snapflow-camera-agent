@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": false,
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["lib/api/generated/**/*.ts"],
+  "exclude": []
+}

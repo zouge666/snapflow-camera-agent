@@ -36,7 +36,7 @@ class IcsExportRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0"]
     reference_date: date
     approved_items: tuple[ApprovedActionItem, ...]
 
@@ -64,8 +64,6 @@ class IcsToolResult(BaseModel):
 class IcsExportResponse(IcsToolResult):
     """Download metadata and in-memory content returned over HTTP."""
 
-    schema_version: Literal["1.0"] = "1.0"
-    filename: Literal["snapflow-approved-actions.ics"] = "snapflow-approved-actions.ics"
-    content_type: Literal["text/calendar; charset=utf-8"] = (
-        "text/calendar; charset=utf-8"
-    )
+    schema_version: Literal["1.0"]
+    filename: Literal["snapflow-approved-actions.ics"]
+    content_type: Literal["text/calendar; charset=utf-8"]
