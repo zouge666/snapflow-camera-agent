@@ -20,7 +20,15 @@
 ./scripts/pnpmw test:e2e
 ./scripts/pnpmw lint
 ./scripts/pnpmw typecheck
+./scripts/pnpmw contracts:check
 ./scripts/pnpmw build
+```
+
+## Contracts
+
+```bash
+./scripts/pnpmw contracts:generate
+./scripts/pnpmw contracts:check
 ```
 
 ## Format

@@ -1,46 +1,20 @@
-export type ActionPlanRequest = Readonly<{
-  source_text: string;
-  locale: string;
-  timezone: string;
-  reference_date: string;
-}>;
+import type {
+  ActionPlanRequest,
+  ActionPlanResponse,
+  CandidateAction,
+  CandidateDue,
+  Clarification,
+  EvidenceRange,
+} from "../../lib/api/generated/types.gen";
 
-export type EvidenceRange = Readonly<{
-  quote: string;
-  start: number;
-  end: number;
-}>;
-
-export type CandidateDue = Readonly<{
-  iso_date: string | null;
-  raw_text: string;
-  resolution: "absolute" | "relative" | "ambiguous";
-}>;
-
-export type CandidateAction = Readonly<{
-  id: string;
-  title: string;
-  owner: string | null;
-  due: CandidateDue | null;
-  priority: "low" | "medium" | "high" | "unknown";
-  evidence: readonly EvidenceRange[];
-}>;
-
-export type Clarification = Readonly<{
-  id: string;
-  field_path: string;
-  question: string;
-  reason: string;
-  evidence: EvidenceRange | null;
-}>;
-
-export type ActionPlanResponse = Readonly<{
-  schema_version: "1.0";
-  provider: "mock";
-  summary: string;
-  candidate_actions: readonly CandidateAction[];
-  clarifications: readonly Clarification[];
-}>;
+export type {
+  ActionPlanRequest,
+  ActionPlanResponse,
+  CandidateAction,
+  CandidateDue,
+  Clarification,
+  EvidenceRange,
+} from "../../lib/api/generated/types.gen";
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 

@@ -11,6 +11,8 @@
   "scripts": {
     "build": "pnpm run build:web",
     "build:web": "pnpm --filter @snapflow/web build",
+    "contracts:check": "node scripts/contracts.mjs check",
+    "contracts:generate": "node scripts/contracts.mjs generate",
     "dev": "node scripts/dev.mjs",
     "dev:api": ".venv/bin/python -m uvicorn snapflow.main:create_app --factory --reload --host 0.0.0.0 --port 8000",
     "dev:web": "pnpm --filter @snapflow/web dev --hostname 0.0.0.0",
@@ -43,6 +45,7 @@
     "typecheck:web": "pnpm --filter @snapflow/web typecheck"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
     "@playwright/test": "1.61.1"
   }
 }

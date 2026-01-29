@@ -107,6 +107,7 @@ def test_contract_rejects_items_that_are_not_explicitly_approved() -> None:
 
 def test_application_returns_download_metadata_for_an_empty_valid_calendar() -> None:
     request = IcsExportRequest(
+        schema_version="1.0",
         reference_date=date(2026, 7, 16),
         approved_items=(
             approved_item(

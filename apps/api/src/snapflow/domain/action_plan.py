@@ -96,8 +96,8 @@ class ActionPlanResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
-    provider: Literal["mock"] = "mock"
+    schema_version: Literal["1.0"]
+    provider: Literal["mock"]
     summary: str = Field(min_length=1, max_length=300)
     candidate_actions: tuple[CandidateAction, ...]
     clarifications: tuple[Clarification, ...]

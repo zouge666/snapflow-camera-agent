@@ -35,6 +35,8 @@ class MockProvider:
         """Recognize the documented sample phrases in their original context."""
         if not self._has_supported_context(request):
             return ActionPlanResponse(
+                schema_version="1.0",
+                provider="mock",
                 summary=(
                     "No candidate actions matched the supported synthetic sample "
                     "context."
@@ -114,6 +116,8 @@ class MockProvider:
             )
 
         return ActionPlanResponse(
+            schema_version="1.0",
+            provider="mock",
             summary=self._summary(len(actions), len(clarifications)),
             candidate_actions=tuple(actions),
             clarifications=tuple(clarifications),
