@@ -1111,6 +1111,108 @@ main:focus {
   background: var(--canvas-deep);
 }
 
+.ocr-review-map {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgb(220 248 119 / 18%);
+  border: 1px solid rgb(23 79 62 / 22%);
+  border-radius: var(--radius-small);
+}
+
+.ocr-review-map-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.ocr-review-map-heading .section-kicker {
+  margin: 0 0 0.35rem;
+}
+
+.ocr-review-map-heading h3 {
+  margin: 0;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 550;
+  letter-spacing: -0.025em;
+}
+
+.ocr-review-map-heading > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.64rem;
+}
+
+.ocr-review-segments {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ocr-review-segments button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.65rem;
+  color: var(--ink);
+  text-align: left;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  cursor: pointer;
+}
+
+.ocr-review-segments button:hover:not(:disabled) {
+  border-color: var(--forest);
+}
+
+.ocr-review-segments button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ocr-review-segments .ocr-confidence {
+  padding: 0.25rem 0.4rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ocr-review-segments q {
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocr-review-segments small {
+  color: var(--muted);
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+
+.ocr-review-map-help,
+.ocr-review-map-guard,
+.ocr-review-map-empty {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.ocr-review-map-guard {
+  color: #7f3a2e;
+  font-weight: 700;
+}
+
 .form-field label,
 .context-fields legend {
   color: var(--ink);
@@ -3279,6 +3381,19 @@ main:focus {
   .review-form-heading {
     align-items: flex-start;
     flex-direction: column-reverse;
+  }
+
+  .ocr-review-map-heading {
+    flex-direction: column;
+  }
+
+  .ocr-review-segments button {
+    grid-template-columns: 1fr;
+  }
+
+  .ocr-review-segments q,
+  .ocr-review-segments small {
+    white-space: normal;
   }
 
   .context-field-grid {

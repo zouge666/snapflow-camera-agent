@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CameraAccessPanel } from "../features/capture/camera-access-panel";
+import type { CapturedOcrDraft } from "../features/capture/captured-ocr-draft";
 import {
   captureVideoFrame,
   FrameCaptureError,
@@ -20,6 +21,8 @@ import {
   type LocalImageProcessor,
   type ProcessedImage,
 } from "../features/image-processing/image-processing";
+import type { OcrResult } from "../features/ocr/ocr-result";
+import type { OcrRunner } from "../features/ocr/ocr-runner";
 
 type MountedPanel = Readonly<{
   container: HTMLDivElement;
@@ -77,6 +80,8 @@ async function mountPanel(
   adapter: CameraMediaAdapter,
   captureFrame = vi.fn(() => capturedFrame),
   imageProcessor: LocalImageProcessor = createTestImageProcessor(),
+  ocrRunner?: OcrRunner,
+  onOcrResult?: (draft: CapturedOcrDraft) => void,
 ): Promise<MountedPanel> {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id='root'></div></body></html>",
@@ -123,6 +128,8 @@ async function mountPanel(
         adapter={adapter}
         captureFrame={captureFrame}
         imageProcessor={imageProcessor}
+        {...(ocrRunner ? { ocrRunner } : {})}
+        {...(onOcrResult ? { onOcrResult } : {})}
       />,
     );
   });
@@ -181,6 +188,75 @@ afterEach(async () => {
 });
 
 describe("static frame capture", () => {
+  it("moves a fake-camera capture into the reviewed OCR handoff", async () => {
+    const track = createTrack();
+    const result: OcrResult = {
+      text: "📷 Plan Friday",
+      language: "eng",
+      confidence: 74,
+      segments: [
+        {
+          text: "📷 Plan",
+          start: 0,
+          end: 7,
+          confidence: 93,
+          level: "high",
+        },
+        {
+          text: " ",
+          start: 7,
+          end: 8,
+          confidence: null,
+          level: "unknown",
+        },
+        {
+          text: "Friday",
+          start: 8,
+          end: 14,
+          confidence: 52,
+          level: "low",
+        },
+      ],
+    };
+    const runner: OcrRunner = {
+      recognize: vi.fn(async () => result),
+      cancel: vi.fn(async () => undefined),
+      dispose: vi.fn(async () => undefined),
+    };
+    const onOcrResult = vi.fn();
+    const mounted = await mountPanel(
+      {
+        getAvailability: () => "available",
+        requestStream: vi.fn(async () => createStream(track)),
+      },
+      vi.fn(() => capturedFrame),
+      createTestImageProcessor(),
+      runner,
+      onOcrResult,
+    );
+    await startReadyPreview(mounted);
+
+    await act(async () => {
+      getButton(mounted.container, "Capture frame").click();
+    });
+    await act(async () => {
+      getButton(mounted.container, "Read text on this device").click();
+    });
+
+    expect(runner.recognize).toHaveBeenCalledWith(
+      "blob:snapflow-1",
+      expect.objectContaining({ onProgress: expect.any(Function) }),
+    );
+    expect(onOcrResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "camera",
+        image: expect.objectContaining({ objectUrl: "blob:snapflow-1" }),
+        result,
+      }),
+    );
+    expect(track.stop).toHaveBeenCalledOnce();
+  });
+
   it("renders the stream, captures locally, and stops the camera immediately", async () => {
     const track = createTrack();
     const captureFrame = vi.fn(() => capturedFrame);

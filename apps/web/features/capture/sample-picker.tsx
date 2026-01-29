@@ -132,7 +132,11 @@ export function SamplePicker({
           <p role="status">
             Selected: <strong>{selectedSample.title}</strong>
           </p>
-          <a className="button button--primary" href="#review-title">
+          <a
+            className="button button--primary"
+            href="#review-title"
+            onClick={() => onSelect(selectedSample.id)}
+          >
             Review selected sample
           </a>
         </div>

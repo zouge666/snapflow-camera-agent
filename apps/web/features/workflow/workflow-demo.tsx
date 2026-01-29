@@ -3,10 +3,18 @@
 import { useReducer, useRef, useState } from "react";
 
 import { DemoStepper } from "../../app/_components/demo-stepper";
-import { CameraAccessPanel } from "../capture/camera-access-panel";
+import {
+  CameraAccessPanel,
+  type CameraAccessPanelProps,
+} from "../capture/camera-access-panel";
 import { SamplePicker } from "../capture/sample-picker";
 import { ReviewTextForm } from "../ocr-review/review-text-form";
 import type { ReviewTextFields } from "../ocr-review/review-text";
+import {
+  createOcrReviewSource,
+  createSampleReviewSource,
+  getBrowserReviewContext,
+} from "../ocr-review/review-source";
 import type { ReviewSample } from "../ocr-review/sample-review";
 import {
   ActionPlanClientError,
@@ -18,6 +26,7 @@ import { initialWorkflowState, workflowReducer } from "./workflow-state";
 
 type WorkflowDemoProps = Readonly<{
   samples: readonly [ReviewSample, ...ReviewSample[]];
+  cameraPanelProps?: Omit<CameraAccessPanelProps, "onOcrInvalidated" | "onOcrResult">;
 }>;
 
 function toActionPlanRequest(fields: ReviewTextFields): ActionPlanRequest {
@@ -29,9 +38,12 @@ function toActionPlanRequest(fields: ReviewTextFields): ActionPlanRequest {
   };
 }
 
-export function WorkflowDemo({ samples }: WorkflowDemoProps) {
+export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
   const [state, dispatch] = useReducer(workflowReducer, initialWorkflowState);
   const [selectedSampleId, setSelectedSampleId] = useState(samples[0].id);
+  const [reviewSource, setReviewSource] = useState(() =>
+    createSampleReviewSource(samples[0]),
+  );
   const lastRequest = useRef<ActionPlanRequest | null>(null);
   const requestVersion = useRef(0);
   const selectedSample =
@@ -68,17 +80,18 @@ export function WorkflowDemo({ samples }: WorkflowDemoProps) {
   };
 
   const selectSample = (sampleId: string) => {
-    if (sampleId === selectedSample.id) {
+    if (sampleId === selectedSample.id && reviewSource.kind === "sample") {
       return;
     }
 
-    const sampleExists = samples.some((sample) => sample.id === sampleId);
-    if (!sampleExists) {
+    const sample = samples.find((candidate) => candidate.id === sampleId);
+    if (sample === undefined) {
       return;
     }
 
     invalidatePlan();
     setSelectedSampleId(sampleId);
+    setReviewSource(createSampleReviewSource(sample));
   };
 
   return (
@@ -99,10 +112,22 @@ export function WorkflowDemo({ samples }: WorkflowDemoProps) {
         selectedSampleId={selectedSample.id}
         onSelect={selectSample}
       />
-      <CameraAccessPanel />
+      <CameraAccessPanel
+        {...cameraPanelProps}
+        onOcrInvalidated={() => {
+          invalidatePlan();
+          setReviewSource((current) =>
+            current.kind === "ocr" ? createSampleReviewSource(selectedSample) : current,
+          );
+        }}
+        onOcrResult={(draft) => {
+          invalidatePlan();
+          setReviewSource(createOcrReviewSource(draft, getBrowserReviewContext()));
+        }}
+      />
       <ReviewTextForm
-        key={selectedSample.id}
-        sample={selectedSample}
+        key={reviewSource.id}
+        source={reviewSource}
         isBuilding={state.status === "loading"}
         onBuildPlan={(fields) => void runRequest(toActionPlanRequest(fields))}
         onReviewChange={invalidatePlan}
