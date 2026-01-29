@@ -42,7 +42,10 @@ const result: OcrResult = {
 };
 const mountedPanels: MountedPanel[] = [];
 
-async function mountPanel(runner: OcrRunner): Promise<MountedPanel> {
+async function mountPanel(
+  runner: OcrRunner,
+  onResult?: (ocrResult: OcrResult) => void,
+): Promise<MountedPanel> {
   const dom = new JSDOM(
     "<!doctype html><html><body><div id='root'></div></body></html>",
     {
@@ -73,7 +76,13 @@ async function mountPanel(runner: OcrRunner): Promise<MountedPanel> {
   mountedPanels.push(mounted);
 
   await act(async () => {
-    root.render(<OcrPanel imageUrl="blob:processed-image" runner={runner} />);
+    root.render(
+      <OcrPanel
+        imageUrl="blob:processed-image"
+        runner={runner}
+        {...(onResult ? { onResult } : {})}
+      />,
+    );
   });
 
   return mounted;
@@ -116,6 +125,7 @@ afterEach(async () => {
 
 describe("OCR review panel", () => {
   it("shows progress, numeric and unknown confidence, and text highlights", async () => {
+    const onResult = vi.fn();
     const progress: OcrProgress = {
       phase: "recognizing",
       label: "Reading text on this device",
@@ -125,7 +135,7 @@ describe("OCR review panel", () => {
       options?.onProgress?.(progress);
       return result;
     });
-    const mounted = await mountPanel(runner);
+    const mounted = await mountPanel(runner, onResult);
 
     await act(async () => {
       getButton(mounted.container, "Read text on this device").click();
@@ -147,6 +157,7 @@ describe("OCR review panel", () => {
     expect(
       mounted.container.querySelector('mark[title="Low confidence: 55%"]')?.textContent,
     ).toBe("Friday");
+    expect(onResult).toHaveBeenCalledWith(result);
   });
 
   it("cancels immediately and offers a safe retry", async () => {
@@ -167,22 +178,25 @@ describe("OCR review panel", () => {
   });
 
   it("shows a recoverable error and succeeds on retry", async () => {
+    const onResult = vi.fn();
     const recognize = vi
       .fn()
       .mockRejectedValueOnce(new Error("worker failed"))
       .mockResolvedValueOnce(result);
     const runner = createRunner(recognize);
-    const mounted = await mountPanel(runner);
+    const mounted = await mountPanel(runner, onResult);
 
     await act(async () => {
       getButton(mounted.container, "Read text on this device").click();
     });
     expect(mounted.container.textContent).toContain("OCR could not finish.");
+    expect(onResult).not.toHaveBeenCalled();
 
     await act(async () => {
       getButton(mounted.container, "Retry local OCR").click();
     });
     expect(mounted.container.textContent).toContain("OCR draft");
     expect(recognize).toHaveBeenCalledTimes(2);
+    expect(onResult).toHaveBeenCalledOnce();
   });
 });

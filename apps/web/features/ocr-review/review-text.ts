@@ -14,6 +14,8 @@ export type ReviewTextErrors = Partial<
 export type ReviewTextState = Readonly<{
   initialFields: ReviewTextFields;
   fields: ReviewTextFields;
+  history: readonly ReviewTextFields[];
+  isDirty: boolean;
   confirmationChecked: boolean;
   errors: ReviewTextErrors;
   status: "editing" | "confirmed";
@@ -26,8 +28,24 @@ export type ReviewTextAction =
       value: string;
     }>
   | Readonly<{ type: "toggle-confirmation"; checked: boolean }>
+  | Readonly<{ type: "undo" }>
   | Readonly<{ type: "reset" }>
   | Readonly<{ type: "submit" }>;
+
+const MAX_UNDO_STEPS = 100;
+
+function fieldsEqual(left: ReviewTextFields, right: ReviewTextFields): boolean {
+  return (
+    left.transcript === right.transcript &&
+    left.locale === right.locale &&
+    left.timezone === right.timezone &&
+    left.referenceDate === right.referenceDate
+  );
+}
+
+export function countTranscriptWords(transcript: string): number {
+  return transcript.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+}
 
 function isValidIsoDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -75,6 +93,8 @@ export function createReviewTextState(fields: ReviewTextFields): ReviewTextState
   return {
     initialFields: fields,
     fields,
+    history: [],
+    isDirty: false,
     confirmationChecked: false,
     errors: {},
     status: "editing",
@@ -87,13 +107,20 @@ export function reviewTextReducer(
 ): ReviewTextState {
   switch (action.type) {
     case "change-field": {
+      if (state.fields[action.field] === action.value) {
+        return state;
+      }
+
       const errors = { ...state.errors };
       delete errors[action.field];
       delete errors.confirmation;
+      const fields = { ...state.fields, [action.field]: action.value };
 
       return {
         ...state,
-        fields: { ...state.fields, [action.field]: action.value },
+        fields,
+        history: [...state.history, state.fields].slice(-MAX_UNDO_STEPS),
+        isDirty: !fieldsEqual(fields, state.initialFields),
         confirmationChecked: false,
         errors,
         status: "editing",
@@ -107,6 +134,23 @@ export function reviewTextReducer(
         ...state,
         confirmationChecked: action.checked,
         errors,
+        status: "editing",
+      };
+    }
+    case "undo": {
+      const fields = state.history.at(-1);
+
+      if (fields === undefined) {
+        return state;
+      }
+
+      return {
+        ...state,
+        fields,
+        history: state.history.slice(0, -1),
+        isDirty: !fieldsEqual(fields, state.initialFields),
+        confirmationChecked: false,
+        errors: {},
         status: "editing",
       };
     }

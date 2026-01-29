@@ -8,6 +8,7 @@ import {
   type CapturedFrame,
   type FrameCapture,
 } from "./capture-frame";
+import type { CapturedOcrDraft } from "./captured-ocr-draft";
 import type {
   CameraFacingMode,
   CameraMediaAdapter,
@@ -30,12 +31,16 @@ import {
   type QuarterTurn,
 } from "../image-processing/image-processing";
 import { OcrPanel } from "../ocr/ocr-panel";
+import type { OcrRunner } from "../ocr/ocr-runner";
 
-type CameraAccessPanelProps = Readonly<{
+export type CameraAccessPanelProps = Readonly<{
   adapter?: CameraMediaAdapter;
   captureFrame?: FrameCapture;
   loadFile?: ImageFileLoader;
   imageProcessor?: LocalImageProcessor;
+  ocrRunner?: OcrRunner;
+  onOcrInvalidated?: () => void;
+  onOcrResult?: (draft: CapturedOcrDraft) => void;
 }>;
 
 type CameraPreviewProps = Readonly<{
@@ -165,11 +170,15 @@ export function CameraAccessPanel({
   captureFrame = captureVideoFrame,
   loadFile = loadImageFile,
   imageProcessor = browserLocalImageProcessor,
+  ocrRunner,
+  onOcrInvalidated,
+  onOcrResult,
 }: CameraAccessPanelProps) {
   const camera = useCameraPermission(adapter);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadVersionRef = useRef(0);
   const processingVersionRef = useRef(0);
+  const ocrResultSequenceRef = useRef(0);
   const processedImageRef = useRef<ProcessedImage | null>(null);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [selectedFrame, setSelectedFrame] = useState<SelectedFrame | null>(null);
@@ -254,11 +263,13 @@ export function CameraAccessPanel({
 
   const applyTransform = (transform: ImageTransform) => {
     if (selectedFrame !== null) {
+      onOcrInvalidated?.();
       void processSelectedFrame(selectedFrame, transform);
     }
   };
 
   const stopAndUseSample = () => {
+    onOcrInvalidated?.();
     uploadVersionRef.current += 1;
     releaseProcessedImage();
     camera.releaseCamera();
@@ -273,6 +284,7 @@ export function CameraAccessPanel({
   };
 
   const handleCapture = (frame: CapturedFrame) => {
+    onOcrInvalidated?.();
     uploadVersionRef.current += 1;
     releaseProcessedImage();
     void processSelectedFrame(
@@ -288,6 +300,7 @@ export function CameraAccessPanel({
   };
 
   const retake = () => {
+    onOcrInvalidated?.();
     uploadVersionRef.current += 1;
     releaseProcessedImage();
     setSelectedFrame(null);
@@ -298,6 +311,7 @@ export function CameraAccessPanel({
   };
 
   const startCamera = () => {
+    onOcrInvalidated?.();
     uploadVersionRef.current += 1;
     setUploadState({ status: "idle" });
     void camera.requestCamera(facingMode);
@@ -309,6 +323,7 @@ export function CameraAccessPanel({
     }
 
     const uploadVersion = uploadVersionRef.current + 1;
+    onOcrInvalidated?.();
     uploadVersionRef.current = uploadVersion;
     releaseProcessedImage();
     camera.releaseCamera();
@@ -591,10 +606,27 @@ export function CameraAccessPanel({
                       : "Preview re-encoded locally. Metadata removed."}
               </p>
             </div>
-            {processedImage !== null ? (
+            {processedImage !== null && processingState.status === "idle" ? (
               <OcrPanel
                 key={processedImage.objectUrl}
                 imageUrl={processedImage.objectUrl}
+                {...(ocrRunner ? { runner: ocrRunner } : {})}
+                onResult={(result) => {
+                  ocrResultSequenceRef.current += 1;
+                  onOcrResult?.({
+                    id: `${processedImage.objectUrl}:${ocrResultSequenceRef.current}`,
+                    source: selectedFrame.source,
+                    ...(selectedFrame.fileName
+                      ? { fileName: selectedFrame.fileName }
+                      : {}),
+                    image: processedImage,
+                    result,
+                  });
+                  document.getElementById("review-title")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }}
               />
             ) : null}
             <div className="camera-capture-review-actions">

@@ -13,6 +13,7 @@ import type { OcrConfidenceLevel, OcrResult } from "./ocr-result";
 type OcrPanelProps = Readonly<{
   imageUrl: string;
   runner?: OcrRunner;
+  onResult?: (result: OcrResult) => void;
 }>;
 
 type OcrPanelState =
@@ -29,7 +30,11 @@ const confidenceLabels: Readonly<Record<OcrConfidenceLevel, string>> = {
   unknown: "Unknown confidence",
 };
 
-export function OcrPanel({ imageUrl, runner: suppliedRunner }: OcrPanelProps) {
+export function OcrPanel({
+  imageUrl,
+  runner: suppliedRunner,
+  onResult,
+}: OcrPanelProps) {
   const [runner] = useState<OcrRunner>(() => suppliedRunner ?? createOcrRunner());
   const runVersionRef = useRef(0);
   const [state, setState] = useState<OcrPanelState>({ status: "idle" });
@@ -66,6 +71,7 @@ export function OcrPanel({ imageUrl, runner: suppliedRunner }: OcrPanelProps) {
 
       if (runVersionRef.current === runVersion) {
         setState({ status: "success", result });
+        onResult?.(result);
       }
     } catch (error) {
       if (

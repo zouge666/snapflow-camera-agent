@@ -7,12 +7,14 @@ import { describe, expect, it } from "vitest";
 import DemoPage from "../app/demo/page";
 import { ReviewTextForm } from "../features/ocr-review/review-text-form";
 import {
+  countTranscriptWords,
   createReviewTextState,
   MAX_TRANSCRIPT_LENGTH,
   reviewTextReducer,
   validateReviewText,
   type ReviewTextFields,
 } from "../features/ocr-review/review-text";
+import { createSampleReviewSource } from "../features/ocr-review/review-source";
 import { northstarPlanningSample } from "../features/ocr-review/sample-review";
 
 const sampleFields: ReviewTextFields = {
@@ -39,8 +41,25 @@ describe("review text state", () => {
 
     expect(confirmed.status).toBe("confirmed");
     expect(edited.fields.transcript).toBe("Corrected meeting text");
+    expect(edited.history).toHaveLength(1);
+    expect(edited.isDirty).toBe(true);
     expect(edited.confirmationChecked).toBe(false);
     expect(edited.status).toBe("editing");
+  });
+
+  it("undoes Unicode edits and restores a clean source state", () => {
+    const edited = reviewTextReducer(createReviewTextState(sampleFields), {
+      type: "change-field",
+      field: "transcript",
+      value: "📷 Plan café Friday",
+    });
+    const undone = reviewTextReducer(edited, { type: "undo" });
+
+    expect(countTranscriptWords("📷 Plan café Friday — 计划")).toBe(4);
+    expect(edited.isDirty).toBe(true);
+    expect(undone.fields).toEqual(sampleFields);
+    expect(undone.history).toEqual([]);
+    expect(undone.isDirty).toBe(false);
   });
 
   it("resets edited values, validation and confirmation to the fixture", () => {
@@ -55,6 +74,8 @@ describe("review text state", () => {
     expect(reset.fields).toEqual(sampleFields);
     expect(reset.confirmationChecked).toBe(false);
     expect(reset.errors).toEqual({});
+    expect(reset.history).toEqual([]);
+    expect(reset.isDirty).toBe(false);
     expect(reset.status).toBe("editing");
   });
 
@@ -114,7 +135,7 @@ describe("review text state", () => {
 describe("review text interface", () => {
   it("renders the fixture image, editable context and honest handoff boundary", () => {
     const markup = renderToStaticMarkup(
-      <ReviewTextForm sample={northstarPlanningSample} />,
+      <ReviewTextForm source={createSampleReviewSource(northstarPlanningSample)} />,
     );
 
     expect(markup).toContain("Northstar planning board");

@@ -158,3 +158,111 @@ test("a local image can be cropped and reset without an image upload", async ({
 
   expect(postRequests).toEqual([]);
 });
+
+test("camera denial keeps the upload and synthetic sample fallbacks available", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async () => {
+        throw new DOMException("blocked for deterministic test", "NotAllowedError");
+      },
+    });
+  });
+  await page.goto("/demo");
+
+  await page.getByRole("button", { name: "Use camera" }).click();
+
+  await expect(page.getByText("Camera access was blocked.")).toBeVisible();
+  await expect(page.getByText("Choose image", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Review selected sample" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Review the sample transcript" }),
+  ).toBeVisible();
+});
+
+test("an uploaded image recovers from worker failure and sends only final text", async ({
+  page,
+}) => {
+  const browserOrigin = "http://127.0.0.1:3100";
+  const unexpectedOrigins = new Set<string>();
+  let failWorkerOnce = true;
+
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin !== browserOrigin
+    ) {
+      unexpectedOrigins.add(url.origin);
+    }
+  });
+  await page.route("**/ocr-runtime/worker.min.js", async (route) => {
+    if (failWorkerOnce) {
+      failWorkerOnce = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/demo");
+  await page
+    .locator('.camera-access-actions input[type="file"]')
+    .setInputFiles(
+      resolve("apps/web/public/samples/northstar-planning/meeting-notes.png"),
+    );
+
+  await page.getByRole("button", { name: "Read text on this device" }).click();
+  await expect(page.getByText("OCR could not finish.")).toBeVisible();
+  await page.getByRole("button", { name: "Retry local OCR" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review the OCR transcript" }),
+  ).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText("Uploaded image OCR", { exact: true })).toBeVisible();
+
+  const fixtureTranscript = await readFile(
+    resolve("apps/web/public/samples/northstar-planning/transcript.txt"),
+    "utf8",
+  );
+  const finalText = `${fixtureTranscript.trimEnd()}\nReviewed locally ✓`;
+  await page.getByLabel("Meeting text").fill(finalText);
+  await expect(page.getByText("Unsaved edits", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Original confidence links are paused", { exact: false }),
+  ).toBeVisible();
+  await page.getByLabel("Locale").fill("en-US");
+  await page.getByLabel("Timezone").fill("Europe/Copenhagen");
+  await page.getByLabel("Reference date").fill("2026-07-16");
+
+  await page
+    .getByRole("checkbox", {
+      name: "I reviewed this text and want to use it in the next step.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Confirm reviewed text" }).click();
+  await expect(page.getByText("Text confirmed locally.")).toBeVisible();
+
+  const planRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/demo/action-plan",
+  );
+  await page.getByRole("button", { name: "Build demo action plan" }).click();
+  const planRequest = await planRequestPromise;
+  const planPayload = planRequest.postDataJSON() as Record<string, unknown>;
+
+  expect(planPayload).toEqual({
+    source_text: finalText,
+    locale: "en-US",
+    timezone: "Europe/Copenhagen",
+    reference_date: "2026-07-16",
+  });
+  expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
+  await expect(
+    page.getByRole("heading", { name: "Decide each candidate separately." }),
+  ).toBeVisible();
+  expect([...unexpectedOrigins]).toEqual([]);
+});
