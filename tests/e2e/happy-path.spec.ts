@@ -42,16 +42,47 @@ test("sample review reaches a partial approved-only ICS download without a key",
       request.method() === "POST" &&
       new URL(request.url()).pathname === "/api/demo/action-plan",
   );
+  const runRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && new URL(request.url()).pathname === "/api/runs",
+  );
   await page.getByRole("button", { name: "Build demo action plan" }).click();
-  const planRequest = await planRequestPromise;
+  const [runRequest, planRequest] = await Promise.all([
+    runRequestPromise,
+    planRequestPromise,
+  ]);
+  const runPayload = runRequest.postDataJSON() as Record<string, unknown>;
   const planPayload = planRequest.postDataJSON() as Record<string, unknown>;
 
+  expect(runPayload).toMatchObject({
+    schema_version: "1.0",
+    locale: "en-US",
+    timezone: "Europe/Copenhagen",
+    reference_date: "2026-01-15",
+  });
+  expect(runRequest.headers()["idempotency-key"]).toMatch(/^create-run:/);
   expect(planPayload).toMatchObject({
     locale: "en-US",
     timezone: "Europe/Copenhagen",
-    reference_date: "2026-07-16",
+    reference_date: "2026-01-15",
   });
   expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
+  expect(JSON.stringify(runPayload)).not.toMatch(/image|base64|data:image/i);
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        sessionKeys: Object.keys(window.sessionStorage).filter((key) =>
+          key.startsWith("snapflow."),
+        ),
+        persistentKeys: Object.keys(window.localStorage).filter((key) =>
+          key.startsWith("snapflow."),
+        ),
+      })),
+    )
+    .toEqual({
+      sessionKeys: ["snapflow.guest-session.v1"],
+      persistentKeys: [],
+    });
 
   await expect(
     page.getByRole("heading", { name: "Decide each candidate separately." }),
@@ -97,7 +128,7 @@ test("sample review reaches a partial approved-only ICS download without a key",
   expect(exportPayload.approved_items[0]).toMatchObject({
     id: "action-1",
     decision: "approved",
-    due_date: "2026-07-17",
+    due_date: "2026-01-16",
   });
   expect(JSON.stringify(exportPayload)).not.toMatch(/action-2|action-3/);
 
@@ -111,7 +142,7 @@ test("sample review reaches a partial approved-only ICS download without a key",
   expect(calendar).toContain("BEGIN:VCALENDAR\r\n");
   expect(calendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
   expect(calendar).toContain("SUMMARY:Send the revised onboarding checklist\r\n");
-  expect(calendar).toContain("DTSTART;VALUE=DATE:20260717\r\n");
+  expect(calendar).toContain("DTSTART;VALUE=DATE:20260116\r\n");
   expect(calendar).not.toMatch(/support FAQ|pilot review/i);
   await expect(page.getByText("1 calendar event downloaded.")).toBeVisible();
   expect([...unexpectedOrigins]).toEqual([]);
@@ -235,7 +266,7 @@ test("an uploaded image recovers from worker failure and sends only final text",
   ).toBeVisible();
   await page.getByLabel("Locale").fill("en-US");
   await page.getByLabel("Timezone").fill("Europe/Copenhagen");
-  await page.getByLabel("Reference date").fill("2026-07-16");
+  await page.getByLabel("Reference date").fill("2026-01-15");
 
   await page
     .getByRole("checkbox", {
@@ -258,7 +289,7 @@ test("an uploaded image recovers from worker failure and sends only final text",
     source_text: finalText,
     locale: "en-US",
     timezone: "Europe/Copenhagen",
-    reference_date: "2026-07-16",
+    reference_date: "2026-01-15",
   });
   expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
   await expect(

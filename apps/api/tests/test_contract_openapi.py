@@ -42,6 +42,12 @@ def test_runtime_app_does_not_expose_contract_only_run_routes() -> None:
         "/api/runs/{run_id}/exports",
         "/api/runs/{run_id}/resume",
     }
+    assert {
+        path for path in contract_paths if path.startswith("/api/guest-sessions")
+    } == {
+        "/api/guest-sessions",
+        "/api/guest-sessions/refresh",
+    }
 
 
 def test_contract_openapi_has_stable_operations_models_and_error_envelope() -> None:
@@ -102,9 +108,11 @@ def test_generated_client_contains_all_run_operations_and_shared_enums() -> None
 
     for operation in (
         "answerClarification",
+        "createGuestSession",
         "createRun",
         "deleteRun",
         "exportRun",
+        "refreshGuestSession",
         "resumeRun",
         "submitApproval",
     ):
@@ -132,7 +140,7 @@ def test_generated_client_contains_all_run_operations_and_shared_enums() -> None
                 "source_text": "Alex will prepare the release notes by Friday.",
                 "locale": "en-US",
                 "timezone": "Europe/Copenhagen",
-                "reference_date": "2026-07-29",
+                "reference_date": "2026-01-26",
             },
         ),
         (
@@ -147,7 +155,7 @@ def test_generated_client_contains_all_run_operations_and_shared_enums() -> None
                 "schema_version": "1.0",
                 "clarification_id": "clarification-1",
                 "kind": "free_text",
-                "answer": "The review is on 2026-08-03.",
+                "answer": "The review is on 2026-01-31.",
             },
         ),
         (
@@ -198,3 +206,22 @@ def test_contract_preview_fails_honestly_with_versioned_error(
             "details": [],
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("path", "headers"),
+    [
+        ("/api/guest-sessions", {}),
+        ("/api/guest-sessions/refresh", {"authorization": "Bearer preview"}),
+    ],
+    ids=["create-guest", "refresh-guest"],
+)
+def test_guest_contract_preview_is_versioned_and_honest(
+    path: str,
+    headers: dict[str, str],
+) -> None:
+    with TestClient(create_contract_app()) as client:
+        response = client.post(path, headers=headers)
+
+    assert response.status_code == 501
+    assert response.json()["error"]["code"] == "not_implemented"

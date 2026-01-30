@@ -21,6 +21,7 @@ from snapflow.domain.run_contract import (
     Evidence,
     ExportFormat,
     ExportRequest,
+    GuestSessionResponse,
     PublicError,
     PublicErrorCode,
     ResumeRunRequest,
@@ -41,7 +42,7 @@ def create_payload() -> dict[str, object]:
         "source_text": "Alex will prepare the release notes by Friday.",
         "locale": "en-US",
         "timezone": "Europe/Copenhagen",
-        "reference_date": "2026-07-29",
+        "reference_date": "2026-01-26",
     }
 
 
@@ -56,7 +57,7 @@ def action_item() -> ActionItem:
         id="action-1",
         title="Prepare the release notes",
         owner="Alex",
-        due_date=date(2026, 7, 31),
+        due_date=date(2026, 1, 28),
         due_text="by Friday",
         priority=ActionPriority.HIGH,
         evidence=(evidence(),),
@@ -69,7 +70,7 @@ def trace_event() -> SafeTraceEvent:
         sequence=0,
         node="input_validation",
         outcome=TraceOutcome.SUCCEEDED,
-        occurred_at=datetime(2026, 7, 29, 10, tzinfo=UTC),
+        occurred_at=datetime(2026, 1, 26, 10, tzinfo=UTC),
         duration_ms=3,
         schema_version="1.0",
     )
@@ -77,7 +78,7 @@ def trace_event() -> SafeTraceEvent:
 
 def run_view() -> RunView:
     """Return a complete privacy-aware run snapshot."""
-    created_at = datetime(2026, 7, 29, 10, tzinfo=UTC)
+    created_at = datetime(2026, 1, 26, 10, tzinfo=UTC)
     return RunView(
         schema_version="1.0",
         run_id="run_12345678",
@@ -105,7 +106,7 @@ def run_view() -> RunView:
                 "schema_version": "1.0",
                 "clarification_id": "clarification-1",
                 "kind": "free_text",
-                "answer": "The review is on 2026-08-03.",
+                "answer": "The review is on 2026-01-31.",
             },
         ),
         (
@@ -119,7 +120,7 @@ def run_view() -> RunView:
                         "reviewed": {
                             "title": "Prepare the release notes",
                             "owner": "Alex",
-                            "due_date": "2026-07-31",
+                            "due_date": "2026-01-28",
                             "priority": "high",
                         },
                     }
@@ -166,11 +167,23 @@ def test_create_contract_preserves_source_offsets_and_validates_dates() -> None:
 
     assert request.source_text == "  Alex will ship this.  "
     assert request.locale == "en-US"
-    assert request.reference_date == date(2026, 7, 29)
+    assert request.reference_date == date(2026, 1, 26)
 
-    payload["reference_date"] = "2026-02-30"
+    payload["reference_date"] = "2025-02-30"
     with pytest.raises(ValidationError):
         CreateRunRequest.model_validate(payload)
+
+
+def test_create_contract_requires_an_explicit_valid_iana_timezone() -> None:
+    payload = create_payload()
+    payload["timezone"] = " server-local-time "
+
+    with pytest.raises(ValidationError, match="valid IANA timezone"):
+        CreateRunRequest.model_validate(payload)
+
+    payload["timezone"] = " Europe/Copenhagen "
+    request = CreateRunRequest.model_validate(payload)
+    assert request.timezone == "Europe/Copenhagen"
 
 
 @pytest.mark.parametrize(
@@ -340,8 +353,32 @@ def test_run_snapshot_requires_aware_ordered_timestamps() -> None:
             sequence=0,
             node="extract",
             outcome=TraceOutcome.STARTED,
-            occurred_at=datetime(2026, 7, 29, 10),
+            occurred_at=datetime(2026, 1, 26, 10),
             schema_version="1.0",
+        )
+
+
+def test_guest_access_token_cannot_outlive_its_session() -> None:
+    expires_at = datetime(2026, 1, 15, 10, 30, tzinfo=UTC)
+    session_expires_at = datetime(2026, 1, 16, 10, tzinfo=UTC)
+    response = GuestSessionResponse(
+        schema_version="1.0",
+        guest_session_id="ses_12345678",
+        access_token="signed-token-with-more-than-thirty-two-characters",
+        token_type="Bearer",
+        expires_at=expires_at,
+        session_expires_at=session_expires_at,
+    )
+    assert response.expires_at < response.session_expires_at
+
+    with pytest.raises(ValidationError, match="cannot outlive"):
+        response.model_copy(
+            update={"expires_at": session_expires_at + timedelta(seconds=1)}
+        ).model_validate(
+            {
+                **response.model_dump(),
+                "expires_at": session_expires_at + timedelta(seconds=1),
+            }
         )
 
 
@@ -351,7 +388,7 @@ def test_response_delete_and_error_envelopes_are_versioned_and_strict() -> None:
         schema_version="1.0",
         run_id=response.run.run_id,
         deleted=True,
-        deleted_at=datetime(2026, 7, 29, 11, tzinfo=UTC),
+        deleted_at=datetime(2026, 1, 26, 11, tzinfo=UTC),
     )
     error = ErrorEnvelope(
         schema_version="1.0",

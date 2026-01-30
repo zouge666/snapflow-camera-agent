@@ -15,8 +15,17 @@ from pydantic import (
 )
 
 from snapflow.domain.action_plan import MAX_SOURCE_CHARS
+from snapflow.domain.time_context import validate_timezone_name
 
 SchemaVersion = Literal["1.0"]
+GuestSessionId = Annotated[
+    str,
+    StringConstraints(
+        min_length=8,
+        max_length=100,
+        pattern=r"^ses_[A-Za-z0-9_-]+$",
+    ),
+]
 RunId = Annotated[
     str,
     StringConstraints(
@@ -53,6 +62,25 @@ class RunStatus(StrEnum):
     FATAL_FAILURE = "fatal_failure"
     EXPIRED = "expired"
     DELETED = "deleted"
+
+
+class GuestSessionResponse(RunContractModel):
+    """Short-lived browser credentials with a bounded server-side owner."""
+
+    schema_version: SchemaVersion
+    guest_session_id: GuestSessionId
+    access_token: str = Field(min_length=32, max_length=2_000)
+    token_type: Literal["Bearer"]
+    expires_at: AwareDatetime
+    session_expires_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def token_must_not_outlive_session(self) -> Self:
+        """Keep access credentials within the persistent guest lifetime."""
+        if self.expires_at > self.session_expires_at:
+            message = "access token cannot outlive its guest session"
+            raise ValueError(message)
+        return self
 
 
 class ActionPriority(StrEnum):
@@ -235,7 +263,7 @@ class CreateRunRequest(RunContractModel):
             raise ValueError(message)
         return value
 
-    @field_validator("locale", "timezone")
+    @field_validator("locale")
     @classmethod
     def context_must_contain_content(cls, value: str) -> str:
         """Normalize harmless whitespace on short context fields."""
@@ -244,6 +272,15 @@ class CreateRunRequest(RunContractModel):
             message = "context value must contain non-whitespace text"
             raise ValueError(message)
         return normalized
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_available(cls, value: str) -> str:
+        """Reject invalid IANA zones before a run is stored or executed."""
+        if not value.strip():
+            message = "context value must contain non-whitespace text"
+            raise ValueError(message)
+        return validate_timezone_name(value)
 
 
 class RunResponse(RunContractModel):

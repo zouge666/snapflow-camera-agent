@@ -2,7 +2,7 @@ name: snapflow-local
 
 services:
   postgres:
-    image: postgres:18.4-bookworm@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296
+    image: postgres:18.1@sha256:bfe50b2b0ddd9b55eadedd066fe24c7c6fe06626185b73358c480ea37868024d
     environment:
       POSTGRES_DB: snapflow
       POSTGRES_PASSWORD: snapflow-local-only
@@ -32,8 +32,10 @@ services:
         restart: true
     environment:
       APP_ENV: local
-      DATABASE_URL: postgresql://snapflow:snapflow-local-only@postgres:5432/snapflow
+      DATABASE_URL: postgresql+psycopg://snapflow:snapflow-local-only@postgres:5432/snapflow
+      GUEST_TOKEN_SIGNING_KEY: ${GUEST_TOKEN_SIGNING_KEY:?Set GUEST_TOKEN_SIGNING_KEY in .env}
       MODEL_PROVIDER: mock
+      RUN_TTL_HOURS: 24
     healthcheck:
       test:
         - CMD

@@ -31,10 +31,14 @@ export default defineConfig({
   webServer: [
     {
       name: "API",
-      command: `${python} -m uvicorn snapflow.main:create_app --factory --host 127.0.0.1 --port 8100 --log-level warning`,
+      command: `${python} -m alembic -c apps/api/alembic.ini upgrade head && ${python} -m uvicorn snapflow.main:create_app --factory --host 127.0.0.1 --port 8100 --log-level warning`,
       cwd: repositoryRoot,
       env: {
         APP_ENV: "test",
+        DATABASE_URL:
+          process.env.DATABASE_URL ??
+          "postgresql+psycopg://snapflow:snapflow-local-only@127.0.0.1:5432/snapflow",
+        GUEST_TOKEN_SIGNING_KEY: process.env.GUEST_TOKEN_SIGNING_KEY ?? "11".repeat(32),
         MODEL_PROVIDER: "mock",
       },
       url: `${apiOrigin}/health/live`,

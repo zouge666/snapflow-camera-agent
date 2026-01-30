@@ -9,8 +9,12 @@ description = "SnapFlow API"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
 dependencies = [
+  "alembic==1.19.1",
   "fastapi==0.139.1",
+  "psycopg[binary]==3.3.5",
   "pydantic==2.13.4",
+  "python-dotenv==1.2.3",
+  "sqlalchemy==2.0.52",
   "uvicorn==0.51.0",
 ]
 
