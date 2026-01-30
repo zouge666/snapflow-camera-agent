@@ -21,6 +21,7 @@ from snapflow.domain.run_contract import (
     Evidence,
     ExportFormat,
     ExportRequest,
+    GuestSessionResponse,
     PublicError,
     PublicErrorCode,
     ResumeRunRequest,
@@ -342,6 +343,30 @@ def test_run_snapshot_requires_aware_ordered_timestamps() -> None:
             outcome=TraceOutcome.STARTED,
             occurred_at=datetime(2026, 7, 29, 10),
             schema_version="1.0",
+        )
+
+
+def test_guest_access_token_cannot_outlive_its_session() -> None:
+    expires_at = datetime(2026, 9, 6, 10, 30, tzinfo=UTC)
+    session_expires_at = datetime(2026, 9, 7, 10, tzinfo=UTC)
+    response = GuestSessionResponse(
+        schema_version="1.0",
+        guest_session_id="ses_12345678",
+        access_token="signed-token-with-more-than-thirty-two-characters",
+        token_type="Bearer",
+        expires_at=expires_at,
+        session_expires_at=session_expires_at,
+    )
+    assert response.expires_at < response.session_expires_at
+
+    with pytest.raises(ValidationError, match="cannot outlive"):
+        response.model_copy(
+            update={"expires_at": session_expires_at + timedelta(seconds=1)}
+        ).model_validate(
+            {
+                **response.model_dump(),
+                "expires_at": session_expires_at + timedelta(seconds=1),
+            }
         )
 
 

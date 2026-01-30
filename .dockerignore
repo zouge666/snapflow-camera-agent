@@ -2,5 +2,8 @@
 !apps/
 !apps/api/
 !apps/api/pyproject.toml
+!apps/api/alembic.ini
+!apps/api/migrations/
+!apps/api/migrations/**
 !apps/api/src/
 !apps/api/src/**

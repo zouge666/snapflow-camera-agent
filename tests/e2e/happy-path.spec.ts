@@ -42,16 +42,47 @@ test("sample review reaches a partial approved-only ICS download without a key",
       request.method() === "POST" &&
       new URL(request.url()).pathname === "/api/demo/action-plan",
   );
+  const runRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && new URL(request.url()).pathname === "/api/runs",
+  );
   await page.getByRole("button", { name: "Build demo action plan" }).click();
-  const planRequest = await planRequestPromise;
+  const [runRequest, planRequest] = await Promise.all([
+    runRequestPromise,
+    planRequestPromise,
+  ]);
+  const runPayload = runRequest.postDataJSON() as Record<string, unknown>;
   const planPayload = planRequest.postDataJSON() as Record<string, unknown>;
 
+  expect(runPayload).toMatchObject({
+    schema_version: "1.0",
+    locale: "en-US",
+    timezone: "Europe/Copenhagen",
+    reference_date: "2026-07-16",
+  });
+  expect(runRequest.headers()["idempotency-key"]).toMatch(/^create-run:/);
   expect(planPayload).toMatchObject({
     locale: "en-US",
     timezone: "Europe/Copenhagen",
     reference_date: "2026-07-16",
   });
   expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
+  expect(JSON.stringify(runPayload)).not.toMatch(/image|base64|data:image/i);
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        sessionKeys: Object.keys(window.sessionStorage).filter((key) =>
+          key.startsWith("snapflow."),
+        ),
+        persistentKeys: Object.keys(window.localStorage).filter((key) =>
+          key.startsWith("snapflow."),
+        ),
+      })),
+    )
+    .toEqual({
+      sessionKeys: ["snapflow.guest-session.v1"],
+      persistentKeys: [],
+    });
 
   await expect(
     page.getByRole("heading", { name: "Decide each candidate separately." }),

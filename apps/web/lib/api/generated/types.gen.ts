@@ -503,6 +503,38 @@ export type ExportResponse = {
 };
 
 /**
+ * GuestSessionResponse
+ *
+ * Short-lived browser credentials with a bounded server-side owner.
+ */
+export type GuestSessionResponse = {
+    /**
+     * Access Token
+     */
+    access_token: string;
+    /**
+     * Expires At
+     */
+    expires_at: string;
+    /**
+     * Guest Session Id
+     */
+    guest_session_id: string;
+    /**
+     * Schema Version
+     */
+    schema_version: '1.0';
+    /**
+     * Session Expires At
+     */
+    session_expires_at: string;
+    /**
+     * Token Type
+     */
+    token_type: 'Bearer';
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -870,6 +902,112 @@ export type ExportIcsApiDemoExportsIcsPostResponses = {
 };
 
 export type ExportIcsApiDemoExportsIcsPostResponse = ExportIcsApiDemoExportsIcsPostResponses[keyof ExportIcsApiDemoExportsIcsPostResponses];
+
+export type CreateGuestSessionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/guest-sessions';
+};
+
+export type CreateGuestSessionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorEnvelope;
+    /**
+     * Unauthorized
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not Found
+     */
+    404: ErrorEnvelope;
+    /**
+     * Conflict
+     */
+    409: ErrorEnvelope;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorEnvelope;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorEnvelope;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorEnvelope;
+    /**
+     * Not Implemented
+     */
+    501: ErrorEnvelope;
+};
+
+export type CreateGuestSessionError = CreateGuestSessionErrors[keyof CreateGuestSessionErrors];
+
+export type CreateGuestSessionResponses = {
+    /**
+     * Successful Response
+     */
+    201: GuestSessionResponse;
+};
+
+export type CreateGuestSessionResponse = CreateGuestSessionResponses[keyof CreateGuestSessionResponses];
+
+export type RefreshGuestSessionData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/guest-sessions/refresh';
+};
+
+export type RefreshGuestSessionErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorEnvelope;
+    /**
+     * Unauthorized
+     */
+    401: ErrorEnvelope;
+    /**
+     * Not Found
+     */
+    404: ErrorEnvelope;
+    /**
+     * Conflict
+     */
+    409: ErrorEnvelope;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorEnvelope;
+    /**
+     * Too Many Requests
+     */
+    429: ErrorEnvelope;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorEnvelope;
+    /**
+     * Not Implemented
+     */
+    501: ErrorEnvelope;
+};
+
+export type RefreshGuestSessionError = RefreshGuestSessionErrors[keyof RefreshGuestSessionErrors];
+
+export type RefreshGuestSessionResponses = {
+    /**
+     * Successful Response
+     */
+    200: GuestSessionResponse;
+};
+
+export type RefreshGuestSessionResponse = RefreshGuestSessionResponses[keyof RefreshGuestSessionResponses];
 
 export type CreateRunData = {
     body: CreateRunRequest;

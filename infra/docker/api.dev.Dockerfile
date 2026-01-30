@@ -8,10 +8,12 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 WORKDIR /workspace
 
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
+COPY apps/api/alembic.ini apps/api/alembic.ini
+COPY apps/api/migrations apps/api/migrations
 COPY apps/api/src apps/api/src
 
 RUN python -m pip install --editable ./apps/api
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "snapflow.main:create_app", "--factory", "--reload", "--reload-dir", "/workspace/apps/api/src", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python -m alembic -c apps/api/alembic.ini upgrade head && python -m uvicorn snapflow.main:create_app --factory --reload --reload-dir /workspace/apps/api/src --host 0.0.0.0 --port 8000"]

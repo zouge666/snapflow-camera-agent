@@ -9,6 +9,8 @@
 ## Development
 
 ```bash
+docker compose up --detach postgres
+./scripts/pnpmw db:migrate
 ./scripts/pnpmw dev
 ```
 
@@ -48,6 +50,13 @@
 
 ```bash
 ./scripts/pnpmw dev:api
+```
+
+## Database
+
+```bash
+./scripts/pnpmw db:migrate
+./scripts/pnpmw db:downgrade
 ```
 
 ## Containers

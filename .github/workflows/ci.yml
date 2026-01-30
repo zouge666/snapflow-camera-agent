@@ -65,7 +65,23 @@ jobs:
     timeout-minutes: 15
     env:
       APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://snapflow:snapflow-test-only@127.0.0.1:5432/snapflow
+      GUEST_TOKEN_SIGNING_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
       MODEL_PROVIDER: mock
+    services:
+      postgres:
+        image: postgres:18.4-bookworm@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296
+        env:
+          POSTGRES_DB: snapflow
+          POSTGRES_PASSWORD: snapflow-test-only
+          POSTGRES_USER: snapflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U snapflow -d snapflow"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
     steps:
       - name: Check out repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -162,7 +178,23 @@ jobs:
     timeout-minutes: 20
     env:
       APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://snapflow:snapflow-test-only@127.0.0.1:5432/snapflow
+      GUEST_TOKEN_SIGNING_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
       MODEL_PROVIDER: mock
+    services:
+      postgres:
+        image: postgres:18.4-bookworm@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296
+        env:
+          POSTGRES_DB: snapflow
+          POSTGRES_PASSWORD: snapflow-test-only
+          POSTGRES_USER: snapflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U snapflow -d snapflow"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
     steps:
       - name: Check out repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

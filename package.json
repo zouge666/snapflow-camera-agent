@@ -13,6 +13,8 @@
     "build:web": "pnpm --filter @snapflow/web build",
     "contracts:check": "node scripts/contracts.mjs check",
     "contracts:generate": "node scripts/contracts.mjs generate",
+    "db:downgrade": ".venv/bin/python -m alembic -c apps/api/alembic.ini downgrade base",
+    "db:migrate": ".venv/bin/python -m alembic -c apps/api/alembic.ini upgrade head",
     "dev": "node scripts/dev.mjs",
     "dev:api": ".venv/bin/python -m uvicorn snapflow.main:create_app --factory --reload --host 0.0.0.0 --port 8000",
     "dev:web": "pnpm --filter @snapflow/web dev --hostname 0.0.0.0",

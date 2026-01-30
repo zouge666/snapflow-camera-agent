@@ -35,7 +35,8 @@ def test_default_environment_uses_mock_provider(
 
     app = create_app()
 
-    assert app.state.settings == Settings()
+    assert app.state.settings.app_env == "local"
+    assert app.state.settings.model_provider == "mock"
 
 
 def test_unimplemented_provider_is_rejected(
@@ -45,3 +46,23 @@ def test_unimplemented_provider_is_rejected(
 
     with pytest.raises(ValueError, match="must be 'mock'"):
         create_app()
+
+
+def test_environment_validates_guest_security_and_ttl_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GUEST_TOKEN_SIGNING_KEY", "not-hex")
+    with pytest.raises(ValueError, match="64 hexadecimal"):
+        Settings.from_env()
+
+    monkeypatch.setenv("GUEST_TOKEN_SIGNING_KEY", "11" * 32)
+    monkeypatch.setenv("RUN_TTL_HOURS", "0")
+    with pytest.raises(ValueError, match="positive integer"):
+        Settings.from_env()
+
+    monkeypatch.setenv("RUN_TTL_HOURS", "24")
+    settings = Settings.from_env()
+    assert settings.signing_key_bytes() == bytes.fromhex("11" * 32)
+
+    with pytest.raises(ValueError, match="required"):
+        Settings().signing_key_bytes()

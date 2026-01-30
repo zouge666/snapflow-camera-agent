@@ -17,6 +17,11 @@ import {
 } from "../ocr-review/review-source";
 import type { ReviewSample } from "../ocr-review/sample-review";
 import {
+  createGuestRun,
+  createIdempotencyKey,
+  GuestSessionClientError,
+} from "../session/guest-session-client";
+import {
   ActionPlanClientError,
   requestActionPlan,
   type ActionPlanRequest,
@@ -45,6 +50,7 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
     createSampleReviewSource(samples[0]),
   );
   const lastRequest = useRef<ActionPlanRequest | null>(null);
+  const lastIdempotencyKey = useRef<string | null>(null);
   const requestVersion = useRef(0);
   const selectedSample =
     samples.find((sample) => sample.id === selectedSampleId) ?? samples[0];
@@ -53,9 +59,12 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
     const version = requestVersion.current + 1;
     requestVersion.current = version;
     lastRequest.current = request;
+    const idempotencyKey = lastIdempotencyKey.current ?? createIdempotencyKey();
+    lastIdempotencyKey.current = idempotencyKey;
     dispatch({ type: "request-plan" });
 
     try {
+      await createGuestRun(request, idempotencyKey);
       const plan = await requestActionPlan(request);
       if (requestVersion.current === version) {
         dispatch({ type: "receive-plan", plan, request });
@@ -65,7 +74,8 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
         dispatch({
           type: "fail-plan",
           message:
-            error instanceof ActionPlanClientError
+            error instanceof ActionPlanClientError ||
+            error instanceof GuestSessionClientError
               ? error.message
               : "The demo service returned an unexpected error.",
         });
@@ -76,6 +86,7 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
   const invalidatePlan = () => {
     requestVersion.current += 1;
     lastRequest.current = null;
+    lastIdempotencyKey.current = null;
     dispatch({ type: "invalidate-plan" });
   };
 

@@ -43,8 +43,10 @@ assert.equal(api.environment.APP_ENV, "local");
 assert.equal(api.environment.MODEL_PROVIDER, "mock");
 assert.equal(
   api.environment.DATABASE_URL,
-  "postgresql://snapflow:snapflow-local-only@postgres:5432/snapflow",
+  "postgresql+psycopg://snapflow:snapflow-local-only@postgres:5432/snapflow",
 );
+assert.match(api.environment.GUEST_TOKEN_SIGNING_KEY, /^[0-9a-fA-F]{64}$/);
+assert.equal(api.environment.RUN_TTL_HOURS, "24");
 assert.ok(api.healthcheck);
 assert.notEqual(api.privileged, true);
 assert.equal(api.read_only, true);
@@ -68,11 +70,7 @@ for (const [serviceName, target] of [
   assert.equal(String(port.published), String(target));
 }
 
-for (const forbidden of [
-  "DEEPSEEK_API_KEY",
-  "GUEST_TOKEN_SIGNING_KEY",
-  "production",
-]) {
+for (const forbidden of ["DEEPSEEK_API_KEY", "production"]) {
   assert.ok(
     !result.stdout.includes(forbidden),
     `${forbidden} must stay out of Compose`,
@@ -96,5 +94,12 @@ const dockerignore = readFileSync(
 assert.ok(dockerignore.startsWith("**\n"));
 assert.ok(!dockerignore.includes("!.env"));
 assert.ok(!dockerignore.includes("!spec.md"));
+
+const composeSource = readFileSync(join(repositoryRoot, "docker-compose.yml"), "utf8");
+assert.ok(
+  composeSource.includes(
+    "GUEST_TOKEN_SIGNING_KEY: ${GUEST_TOKEN_SIGNING_KEY:?Set GUEST_TOKEN_SIGNING_KEY in .env}",
+  ),
+);
 
 console.log("Compose policy checks passed");

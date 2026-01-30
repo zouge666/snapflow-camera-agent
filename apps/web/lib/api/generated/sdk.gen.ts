@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnswerClarificationData, AnswerClarificationErrors, AnswerClarificationResponses, CreateActionPlanApiDemoActionPlanPostData, CreateActionPlanApiDemoActionPlanPostErrors, CreateActionPlanApiDemoActionPlanPostResponses, CreateRunData, CreateRunErrors, CreateRunResponses, DeleteRunData, DeleteRunErrors, DeleteRunResponses, ExportIcsApiDemoExportsIcsPostData, ExportIcsApiDemoExportsIcsPostErrors, ExportIcsApiDemoExportsIcsPostResponses, ExportRunData, ExportRunErrors, ExportRunResponses, GetLivenessHealthLiveGetData, GetLivenessHealthLiveGetResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SubmitApprovalData, SubmitApprovalErrors, SubmitApprovalResponses } from './types.gen';
+import type { AnswerClarificationData, AnswerClarificationErrors, AnswerClarificationResponses, CreateActionPlanApiDemoActionPlanPostData, CreateActionPlanApiDemoActionPlanPostErrors, CreateActionPlanApiDemoActionPlanPostResponses, CreateGuestSessionData, CreateGuestSessionErrors, CreateGuestSessionResponses, CreateRunData, CreateRunErrors, CreateRunResponses, DeleteRunData, DeleteRunErrors, DeleteRunResponses, ExportIcsApiDemoExportsIcsPostData, ExportIcsApiDemoExportsIcsPostErrors, ExportIcsApiDemoExportsIcsPostResponses, ExportRunData, ExportRunErrors, ExportRunResponses, GetLivenessHealthLiveGetData, GetLivenessHealthLiveGetResponses, RefreshGuestSessionData, RefreshGuestSessionErrors, RefreshGuestSessionResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SubmitApprovalData, SubmitApprovalErrors, SubmitApprovalResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -42,6 +42,24 @@ export const exportIcsApiDemoExportsIcsPost = <ThrowOnError extends boolean = fa
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * Create Guest Session Contract
+ *
+ * Describe anonymous guest creation for generated clients.
+ */
+export const createGuestSession = <ThrowOnError extends boolean = false>(options?: Options<CreateGuestSessionData, ThrowOnError>): RequestResult<CreateGuestSessionResponses, CreateGuestSessionErrors, ThrowOnError> => (options?.client ?? client).post<CreateGuestSessionResponses, CreateGuestSessionErrors, ThrowOnError>({ url: '/api/guest-sessions', ...options });
+
+/**
+ * Refresh Guest Session Contract
+ *
+ * Describe safe access-token rotation for generated clients.
+ */
+export const refreshGuestSession = <ThrowOnError extends boolean = false>(options?: Options<RefreshGuestSessionData, ThrowOnError>): RequestResult<RefreshGuestSessionResponses, RefreshGuestSessionErrors, ThrowOnError> => (options?.client ?? client).post<RefreshGuestSessionResponses, RefreshGuestSessionErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/guest-sessions/refresh',
+    ...options
 });
 
 /**

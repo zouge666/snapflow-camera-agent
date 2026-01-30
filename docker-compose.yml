@@ -32,8 +32,10 @@ services:
         restart: true
     environment:
       APP_ENV: local
-      DATABASE_URL: postgresql://snapflow:snapflow-local-only@postgres:5432/snapflow
+      DATABASE_URL: postgresql+psycopg://snapflow:snapflow-local-only@postgres:5432/snapflow
+      GUEST_TOKEN_SIGNING_KEY: ${GUEST_TOKEN_SIGNING_KEY:?Set GUEST_TOKEN_SIGNING_KEY in .env}
       MODEL_PROVIDER: mock
+      RUN_TTL_HOURS: 24
     healthcheck:
       test:
         - CMD
