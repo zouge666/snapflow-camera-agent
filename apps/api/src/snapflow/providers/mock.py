@@ -10,28 +10,30 @@ from snapflow.domain.action_plan import (
     Clarification,
     EvidenceRange,
 )
+from snapflow.domain.evidence import utf16_length
 
 _EXPECTED_LOCALE = "en-US"
 _EXPECTED_TIMEZONE = "Europe/Copenhagen"
-_EXPECTED_REFERENCE_DATE = date(2026, 7, 16)
+_EXPECTED_REFERENCE_DATE = date(2026, 1, 15)
 
 _CHECKLIST_QUOTE = "Alex: Send the revised onboarding checklist by Friday."
 _FAQ_QUOTE = "Prepare the support FAQ before the pilot review."
 _FAQ_DUE_QUOTE = "before the pilot review"
-_PILOT_REVIEW_QUOTE = "Mina: Book a 30-minute pilot review on 2026-07-22."
+_PILOT_REVIEW_QUOTE = "Mina: Book a 30-minute pilot review on 2026-01-22."
 
 
 def _find_evidence(source_text: str, quote: str) -> EvidenceRange | None:
-    start = source_text.find(quote)
-    if start < 0:
+    codepoint_start = source_text.find(quote)
+    if codepoint_start < 0:
         return None
-    return EvidenceRange(quote=quote, start=start, end=start + len(quote))
+    start = utf16_length(source_text[:codepoint_start])
+    return EvidenceRange(quote=quote, start=start, end=start + utf16_length(quote))
 
 
 class MockProvider:
     """Return stable fixture-backed candidates without network access."""
 
-    def build_plan(self, request: ActionPlanRequest) -> ActionPlanResponse:
+    def extract_actions(self, request: ActionPlanRequest) -> ActionPlanResponse:
         """Recognize the documented sample phrases in their original context."""
         if not self._has_supported_context(request):
             return ActionPlanResponse(
@@ -56,7 +58,7 @@ class MockProvider:
                     title="Send the revised onboarding checklist",
                     owner="Alex",
                     due=CandidateDue(
-                        iso_date=date(2026, 7, 17),
+                        iso_date=date(2026, 1, 16),
                         raw_text="by Friday",
                         resolution="relative",
                     ),
@@ -106,8 +108,8 @@ class MockProvider:
                     title="Book a 30-minute pilot review",
                     owner="Mina",
                     due=CandidateDue(
-                        iso_date=date(2026, 7, 22),
-                        raw_text="on 2026-07-22",
+                        iso_date=date(2026, 1, 22),
+                        raw_text="on 2026-01-22",
                         resolution="absolute",
                     ),
                     priority="unknown",

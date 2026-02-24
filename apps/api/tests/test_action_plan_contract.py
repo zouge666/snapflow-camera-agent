@@ -14,6 +14,7 @@ from snapflow.domain.action_plan import (
     ActionPlanRequest,
     EvidenceRange,
 )
+from snapflow.domain.evidence import EvidenceValidator, utf16_length
 from snapflow.providers.mock import MockProvider
 
 pytestmark = pytest.mark.unit
@@ -66,12 +67,12 @@ def test_mock_plan_is_typed_deterministic_and_evidence_linked() -> None:
         "action-3",
     ]
     assert first.candidate_actions[0].due is not None
-    assert first.candidate_actions[0].due.iso_date == date(2026, 7, 17)
+    assert first.candidate_actions[0].due.iso_date == date(2026, 1, 16)
     assert first.candidate_actions[1].owner is None
     assert first.candidate_actions[1].due is not None
     assert first.candidate_actions[1].due.resolution == "ambiguous"
     assert first.candidate_actions[2].due is not None
-    assert first.candidate_actions[2].due.iso_date == date(2026, 7, 22)
+    assert first.candidate_actions[2].due.iso_date == date(2026, 1, 22)
     assert len(first.clarifications) == 1
     assert first.clarifications[0].field_path == "candidate_actions[1].due"
 
@@ -87,15 +88,29 @@ def test_mock_plan_is_typed_deterministic_and_evidence_linked() -> None:
     )
 
 
+def test_mock_plan_emits_browser_compatible_offsets_after_an_emoji() -> None:
+    request = sample_request().model_copy(
+        update={"source_text": f"📷 {sample_request().source_text}"}
+    )
+
+    result = MockProvider().extract_actions(request)
+
+    EvidenceValidator().validate_plan(request.source_text, result)
+    first_evidence = result.candidate_actions[0].evidence[0]
+    codepoint_start = request.source_text.index(first_evidence.quote)
+    assert first_evidence.start == utf16_length(request.source_text[:codepoint_start])
+    assert first_evidence.start == codepoint_start + 1
+
+
 def test_mock_plan_does_not_invent_actions_for_unknown_text() -> None:
     request = ActionPlanRequest(
         source_text="Discussed the weather. No follow-up work was recorded.",
         locale="en-US",
         timezone="Europe/Copenhagen",
-        reference_date=date(2026, 7, 16),
+        reference_date=date(2026, 1, 15),
     )
 
-    result = MockProvider().build_plan(request)
+    result = MockProvider().extract_actions(request)
 
     assert result.candidate_actions == ()
     assert result.clarifications == ()
@@ -107,10 +122,10 @@ def test_clarification_targets_the_returned_candidate_index() -> None:
         source_text="Prepare the support FAQ before the pilot review.",
         locale="en-US",
         timezone="Europe/Copenhagen",
-        reference_date=date(2026, 7, 16),
+        reference_date=date(2026, 1, 15),
     )
 
-    result = MockProvider().build_plan(request)
+    result = MockProvider().extract_actions(request)
 
     assert [action.id for action in result.candidate_actions] == ["action-2"]
     assert result.clarifications[0].field_path == "candidate_actions[0].due"
@@ -119,7 +134,7 @@ def test_clarification_targets_the_returned_candidate_index() -> None:
 def test_mock_plan_rejects_non_fixture_context_without_guessing_dates() -> None:
     request = sample_request().model_copy(update={"timezone": "Europe/Berlin"})
 
-    result = MockProvider().build_plan(request)
+    result = MockProvider().extract_actions(request)
 
     assert result.candidate_actions == ()
     assert result.clarifications == ()

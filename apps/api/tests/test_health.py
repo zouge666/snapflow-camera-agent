@@ -4,7 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from snapflow.config import Settings
-from snapflow.main import create_app
+from snapflow.main import create_action_extraction_provider, create_app
+from snapflow.providers.mock import MockProvider
 
 pytestmark = pytest.mark.integration
 
@@ -14,6 +15,15 @@ def test_app_starts_with_mock_settings() -> None:
 
     assert app.state.settings.app_env == "test"
     assert app.state.settings.model_provider == "mock"
+    assert isinstance(app.state.build_action_plan.provider, MockProvider)
+
+
+def test_composition_root_selects_the_configured_provider() -> None:
+    provider = create_action_extraction_provider(
+        Settings(app_env="test", model_provider="mock")
+    )
+
+    assert isinstance(provider, MockProvider)
 
 
 def test_liveness_returns_ok() -> None:

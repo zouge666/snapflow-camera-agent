@@ -5,7 +5,7 @@ from datetime import timedelta
 from fastapi import FastAPI
 
 from snapflow import __version__
-from snapflow.application.build_plan import BuildActionPlan, PlanProvider
+from snapflow.application.build_plan import BuildActionPlan
 from snapflow.application.export_ics import ExportApprovedIcs, IcsExportTool
 from snapflow.application.guest_runs import GuestRunService
 from snapflow.config import Settings
@@ -15,20 +15,29 @@ from snapflow.presentation.action_plans import create_action_plan_router
 from snapflow.presentation.guest_runs import create_guest_run_router
 from snapflow.presentation.health import router as health_router
 from snapflow.presentation.ics_exports import create_ics_export_router
+from snapflow.providers.base import ActionExtractionProvider
 from snapflow.providers.mock import MockProvider
 from snapflow.security.guest_tokens import GuestTokenService
 from snapflow.tools.ics import IcsExporter
 
 
+def create_action_extraction_provider(settings: Settings) -> ActionExtractionProvider:
+    """Select the configured model adapter at the composition root."""
+    provider_factories = {"mock": MockProvider}
+    return provider_factories[settings.model_provider]()
+
+
 def create_app(
     settings: Settings | None = None,
-    plan_provider: PlanProvider | None = None,
+    action_extraction_provider: ActionExtractionProvider | None = None,
     ics_export_tool: IcsExportTool | None = None,
     guest_run_service: GuestRunService | None = None,
 ) -> FastAPI:
     """Build the API and wire its presentation routes."""
     resolved_settings = settings or Settings.from_env()
-    resolved_provider = plan_provider or MockProvider()
+    resolved_provider = action_extraction_provider or create_action_extraction_provider(
+        resolved_settings
+    )
     resolved_ics_tool = ics_export_tool or IcsExporter()
     build_action_plan = BuildActionPlan(provider=resolved_provider)
     export_approved_ics = ExportApprovedIcs(tool=resolved_ics_tool)
