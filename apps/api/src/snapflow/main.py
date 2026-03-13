@@ -19,6 +19,8 @@ from snapflow.providers.base import ActionExtractionProvider
 from snapflow.providers.mock import MockProvider
 from snapflow.security.guest_tokens import GuestTokenService
 from snapflow.tools.ics import IcsExporter
+from snapflow.workflow.graph import create_action_extraction_workflow
+from snapflow.workflow.state import WorkflowLimits
 
 
 def create_action_extraction_provider(settings: Settings) -> ActionExtractionProvider:
@@ -40,13 +42,21 @@ def create_app(
     )
     resolved_ics_tool = ics_export_tool or IcsExporter()
     build_action_plan = BuildActionPlan(provider=resolved_provider)
+    action_extraction_workflow = create_action_extraction_workflow(
+        build_action_plan,
+        WorkflowLimits(
+            max_clarifications=resolved_settings.max_clarifications,
+            max_provider_retries=resolved_settings.max_provider_retries,
+        ),
+    )
     export_approved_ics = ExportApprovedIcs(tool=resolved_ics_tool)
     app = FastAPI(title="SnapFlow API", version=__version__)
     app.state.settings = resolved_settings
     app.state.build_action_plan = build_action_plan
+    app.state.action_extraction_workflow = action_extraction_workflow
     app.state.export_approved_ics = export_approved_ics
     app.include_router(health_router)
-    app.include_router(create_action_plan_router(build_action_plan))
+    app.include_router(create_action_plan_router(action_extraction_workflow))
     app.include_router(create_ics_export_router(export_approved_ics))
     resolved_guest_service = guest_run_service
     if (

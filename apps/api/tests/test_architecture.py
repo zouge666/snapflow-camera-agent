@@ -18,7 +18,8 @@ TOOLS_ROOT = Path(__file__).parents[1] / "src" / "snapflow" / "tools"
 pytestmark = pytest.mark.unit
 
 
-def test_domain_does_not_import_fastapi() -> None:
+def test_domain_does_not_import_frameworks_or_infrastructure() -> None:
+    forbidden_prefixes = ("fastapi", "langgraph", "sqlalchemy")
     violations: list[str] = []
 
     for path in DOMAIN_ROOT.rglob("*.py"):
@@ -31,11 +32,12 @@ def test_domain_does_not_import_fastapi() -> None:
             else:
                 continue
 
-            imports_fastapi = any(
-                module == "fastapi" or module.startswith("fastapi.")
+            imports_forbidden_dependency = any(
+                module == prefix or module.startswith(f"{prefix}.")
                 for module in modules
+                for prefix in forbidden_prefixes
             )
-            if imports_fastapi:
+            if imports_forbidden_dependency:
                 violations.append(str(path.relative_to(DOMAIN_ROOT)))
 
     assert violations == []
@@ -131,6 +133,34 @@ def test_model_config_stays_outside_workflow_and_provider_modules() -> None:
                 if any(module in forbidden_modules for module in modules):
                     relative_path = path.relative_to(Path(__file__).parents[1] / "src")
                     violations.append(f"{relative_path}:{modules}")
+
+    assert violations == []
+
+
+def test_workflow_does_not_use_prebuilt_agents_or_multi_agent_helpers() -> None:
+    forbidden_prefixes = (
+        "langgraph.prebuilt",
+        "langgraph_supervisor",
+        "langgraph_swarm",
+    )
+    violations: list[str] = []
+
+    for path in WORKFLOW_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                modules = [node.module or ""]
+            else:
+                continue
+
+            if any(
+                module == prefix or module.startswith(f"{prefix}.")
+                for module in modules
+                for prefix in forbidden_prefixes
+            ):
+                violations.append(str(path.relative_to(WORKFLOW_ROOT)))
 
     assert violations == []
 

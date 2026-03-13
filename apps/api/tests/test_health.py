@@ -16,6 +16,9 @@ def test_app_starts_with_mock_settings() -> None:
     assert app.state.settings.app_env == "test"
     assert app.state.settings.model_provider == "mock"
     assert isinstance(app.state.build_action_plan.provider, MockProvider)
+    assert app.state.action_extraction_workflow.graph.name == (
+        "snapflow_action_extraction"
+    )
 
 
 def test_composition_root_selects_the_configured_provider() -> None:
@@ -76,3 +79,22 @@ def test_environment_validates_guest_security_and_ttl_values(
 
     with pytest.raises(ValueError, match="required"):
         Settings().signing_key_bytes()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MAX_CLARIFICATIONS", "3"),
+        ("MAX_PROVIDER_RETRIES", "-1"),
+        ("MAX_PROVIDER_RETRIES", "many"),
+    ],
+)
+def test_environment_enforces_finite_workflow_limits(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match="between 0 and 2"):
+        Settings.from_env()

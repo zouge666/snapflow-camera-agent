@@ -23,6 +23,8 @@ class Settings:
     guest_session_ttl_hours: int = 24
     guest_access_token_ttl_minutes: int = 30
     run_ttl_hours: int = 24
+    max_clarifications: int = 2
+    max_provider_retries: int = 2
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -70,6 +72,16 @@ class Settings:
                 "RUN_TTL_HOURS",
                 value("RUN_TTL_HOURS", "24"),
             ),
+            max_clarifications=cls._bounded_non_negative_int(
+                "MAX_CLARIFICATIONS",
+                value("MAX_CLARIFICATIONS", "2"),
+                maximum=2,
+            ),
+            max_provider_retries=cls._bounded_non_negative_int(
+                "MAX_PROVIDER_RETRIES",
+                value("MAX_PROVIDER_RETRIES", "2"),
+                maximum=2,
+            ),
         )
 
     @staticmethod
@@ -80,6 +92,23 @@ class Settings:
             raise ValueError(f"{name} must be a positive integer") from error
         if value <= 0:
             raise ValueError(f"{name} must be a positive integer")
+        return value
+
+    @staticmethod
+    def _bounded_non_negative_int(
+        name: str,
+        raw_value: str,
+        *,
+        maximum: int,
+    ) -> int:
+        try:
+            value = int(raw_value)
+        except ValueError as error:
+            raise ValueError(
+                f"{name} must be an integer between 0 and {maximum}"
+            ) from error
+        if not 0 <= value <= maximum:
+            raise ValueError(f"{name} must be an integer between 0 and {maximum}")
         return value
 
     def signing_key_bytes(self) -> bytes:
