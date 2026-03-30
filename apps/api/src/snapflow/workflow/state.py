@@ -1,9 +1,11 @@
 """Typed state and safe outcomes for action extraction."""
 
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Self, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
 from snapflow.domain.dates import DateValidationError
@@ -29,6 +31,8 @@ class WorkflowNode(StrEnum):
     NORMALIZE_DATES = "normalize_dates"
     NEEDS_CLARIFICATION = "needs_clarification"
     READY_FOR_APPROVAL = "ready_for_approval"
+    WAIT_FOR_CLARIFICATION = "wait_for_clarification"
+    WAIT_FOR_APPROVAL = "wait_for_approval"
     CLARIFICATION_LIMIT = "clarification_limit"
     FAIL = "fail"
 
@@ -141,9 +145,19 @@ class SafeWorkflowEvent(BaseModel):
     node: WorkflowNode
     outcome: WorkflowEventOutcome
     status: WorkflowStatus
+    occurred_at: datetime
     provider: str | None = Field(default=None, min_length=1, max_length=100)
     retry_count: int = Field(ge=0, le=MAX_PROVIDER_RETRIES)
     failure_code: WorkflowFailureCode | None = None
+
+    @field_validator("occurred_at")
+    @classmethod
+    def occurred_at_must_be_aware(cls, value: datetime) -> datetime:
+        """Keep persisted events independent from a server-local timezone."""
+        if value.tzinfo is None:
+            message = "workflow event timestamps must be timezone aware"
+            raise ValueError(message)
+        return value.astimezone(UTC)
 
 
 class WorkflowLimits(BaseModel):
@@ -164,11 +178,11 @@ class WorkflowLimits(BaseModel):
 
 
 def append_safe_trace(
-    current: tuple[SafeWorkflowEvent, ...],
-    update: tuple[SafeWorkflowEvent, ...],
+    current: Sequence[SafeWorkflowEvent],
+    update: Sequence[SafeWorkflowEvent],
 ) -> tuple[SafeWorkflowEvent, ...]:
     """Append node events without mutating an earlier graph snapshot."""
-    return current + update
+    return (*current, *update)
 
 
 class ActionExtractionState(TypedDict):

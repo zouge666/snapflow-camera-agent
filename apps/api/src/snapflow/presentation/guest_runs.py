@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Header, Response, Security, status
+from fastapi import APIRouter, Body, Header, Path, Response, Security, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -13,20 +13,29 @@ from snapflow.domain.run_contract import (
     GuestSessionResponse,
     PublicError,
     PublicErrorCode,
+    ResumeRunRequest,
     RunResponse,
 )
 from snapflow.persistence.guest_runs import (
     GuestSessionNotFoundError,
     IdempotencyConflictError,
+    RunNotFoundError,
 )
 from snapflow.security.guest_tokens import InvalidGuestTokenError
+from snapflow.workflow.graph import (
+    WorkflowCheckpointError,
+    WorkflowCheckpointNotFoundError,
+)
+from snapflow.workflow.state import ActionExtractionWorkflowError
 
 bearer_scheme = HTTPBearer(auto_error=False)
 ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_401_UNAUTHORIZED: {"model": ErrorEnvelope},
+    status.HTTP_404_NOT_FOUND: {"model": ErrorEnvelope},
     status.HTTP_409_CONFLICT: {"model": ErrorEnvelope},
     status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorEnvelope},
     status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": ErrorEnvelope},
+    status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorEnvelope},
 }
 
 
@@ -34,13 +43,15 @@ def _error(
     status_code: int,
     code: PublicErrorCode,
     message: str,
+    *,
+    retryable: bool = False,
 ) -> JSONResponse:
     body = ErrorEnvelope(
         schema_version="1.0",
         error=PublicError(
             code=code,
             message=message,
-            retryable=False,
+            retryable=retryable,
         ),
     )
     return JSONResponse(
@@ -146,10 +157,77 @@ def create_guest_run_router(service: GuestRunService) -> APIRouter:
                 PublicErrorCode.RUN_CONFLICT,
                 "This idempotency key was already used for another request.",
             )
+        except ActionExtractionWorkflowError as error:
+            return _error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                PublicErrorCode.PROVIDER_UNAVAILABLE,
+                "The action workflow could not produce a recoverable result.",
+                retryable=error.retryable,
+            )
+        except WorkflowCheckpointError:
+            return _error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                PublicErrorCode.INTERNAL_ERROR,
+                "The run could not be checkpointed safely.",
+                retryable=True,
+            )
 
         response.status_code = (
             status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
         )
         return RunResponse(schema_version="1.0", run=result.run)
+
+    @router.post(
+        "/api/runs/{run_id}/resume",
+        operation_id="resume_run",
+        response_model=RunResponse,
+        responses=ERROR_RESPONSES,
+    )
+    def resume_run(
+        run_id: Annotated[
+            str,
+            Path(
+                min_length=8,
+                max_length=100,
+                pattern=r"^run_[A-Za-z0-9_-]+$",
+            ),
+        ],
+        request: Annotated[ResumeRunRequest, Body()],
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(bearer_scheme),
+        ],
+    ) -> RunResponse | Response:
+        token = _bearer_token(credentials)
+        if isinstance(token, JSONResponse):
+            return token
+        try:
+            run = service.resume_run(token, run_id, request)
+        except (InvalidGuestTokenError, GuestSessionNotFoundError):
+            return _error(
+                status.HTTP_401_UNAUTHORIZED,
+                PublicErrorCode.UNAUTHORIZED,
+                "The guest session is invalid or expired.",
+            )
+        except RunNotFoundError:
+            return _error(
+                status.HTTP_404_NOT_FOUND,
+                PublicErrorCode.RUN_NOT_FOUND,
+                "The requested run was not found.",
+            )
+        except WorkflowCheckpointNotFoundError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "The run checkpoint is unavailable.",
+            )
+        except WorkflowCheckpointError:
+            return _error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                PublicErrorCode.INTERNAL_ERROR,
+                "The run checkpoint could not be loaded safely.",
+                retryable=True,
+            )
+        return RunResponse(schema_version="1.0", run=run)
 
     return router

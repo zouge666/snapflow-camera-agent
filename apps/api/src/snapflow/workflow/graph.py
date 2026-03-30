@@ -1,8 +1,12 @@
 """Composition and application boundary for the extraction StateGraph."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from datetime import datetime
+from typing import Any, cast
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -29,6 +33,15 @@ CompiledActionExtractionGraph = CompiledStateGraph[
     ActionExtractionState,
     ActionExtractionState,
 ]
+CHECKPOINT_NAMESPACE = ""
+
+
+class WorkflowCheckpointNotFoundError(LookupError):
+    """The authorized run has no durable graph snapshot."""
+
+
+class WorkflowCheckpointError(RuntimeError):
+    """A checkpoint could not be written or loaded safely."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +56,110 @@ class ActionExtractionWorkflow:
             dict[str, object],
             self.graph.invoke(initial_action_extraction_state(request)),
         )
-        state = ActionExtractionStateSnapshot.model_validate(raw_state)
+        return self._run_from_state(raw_state)
+
+    def start(self, run_id: str, request: ActionPlanRequest) -> ActionExtractionRun:
+        """Execute a new durable thread until its reviewed pause boundary."""
+        return self._invoke_checkpointed(
+            initial_action_extraction_state(request),
+            run_id,
+        )
+
+    def recover_or_start(
+        self,
+        run_id: str,
+        request: ActionPlanRequest,
+    ) -> ActionExtractionRun:
+        """Continue an incomplete write safely or create the first checkpoint."""
+        try:
+            snapshot = self.graph.get_state(self._checkpoint_config(run_id))
+        except Exception as error:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint could not be loaded."
+            ) from error
+        if not snapshot.values:
+            return self.start(run_id, request)
+
+        state = self._validate_snapshot(snapshot.values)
+        if state.status in {
+            WorkflowStatus.NEEDS_CLARIFICATION,
+            WorkflowStatus.READY_FOR_APPROVAL,
+            WorkflowStatus.FATAL_FAILURE,
+        }:
+            return self._run_from_snapshot(state)
+        return self._invoke_checkpointed(None, run_id)
+
+    def load(self, run_id: str) -> ActionExtractionRun:
+        """Load the latest durable state without executing another graph node."""
+        try:
+            snapshot = self.graph.get_state(self._checkpoint_config(run_id))
+        except Exception as error:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint could not be loaded."
+            ) from error
+        if not snapshot.values:
+            raise WorkflowCheckpointNotFoundError
+        state = self._validate_snapshot(snapshot.values)
+        if state.status not in {
+            WorkflowStatus.NEEDS_CLARIFICATION,
+            WorkflowStatus.READY_FOR_APPROVAL,
+            WorkflowStatus.FATAL_FAILURE,
+        }:
+            raise WorkflowCheckpointError(
+                "The workflow has not reached a recoverable pause."
+            )
+        return self._run_from_snapshot(state)
+
+    def _invoke_checkpointed(
+        self,
+        input_state: ActionExtractionState | None,
+        run_id: str,
+    ) -> ActionExtractionRun:
+        try:
+            raw_state = cast(
+                dict[str, object],
+                self.graph.invoke(
+                    input_state,
+                    config=self._checkpoint_config(run_id),
+                    durability="sync",
+                ),
+            )
+        except Exception as error:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint could not be saved."
+            ) from error
+        return self._run_from_state(raw_state)
+
+    @staticmethod
+    def _checkpoint_config(run_id: str) -> RunnableConfig:
+        return cast(
+            RunnableConfig,
+            {
+                "configurable": {
+                    "thread_id": run_id,
+                    "checkpoint_ns": CHECKPOINT_NAMESPACE,
+                }
+            },
+        )
+
+    @staticmethod
+    def _run_from_state(raw_state: dict[str, object]) -> ActionExtractionRun:
+        state = ActionExtractionWorkflow._validate_snapshot(raw_state)
+        return ActionExtractionWorkflow._run_from_snapshot(state)
+
+    @staticmethod
+    def _validate_snapshot(raw_state: object) -> ActionExtractionStateSnapshot:
+        try:
+            return ActionExtractionStateSnapshot.model_validate(raw_state)
+        except Exception as error:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint contains invalid state."
+            ) from error
+
+    @staticmethod
+    def _run_from_snapshot(
+        state: ActionExtractionStateSnapshot,
+    ) -> ActionExtractionRun:
         if state.status is WorkflowStatus.FATAL_FAILURE:
             if state.failure is None:
                 raise IllegalWorkflowTransitionError(
@@ -71,13 +187,17 @@ class ActionExtractionWorkflow:
 def create_action_extraction_workflow(
     planner: BuildActionPlan,
     limits: WorkflowLimits,
+    *,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> ActionExtractionWorkflow:
-    """Compile one deterministic graph without a checkpointer or agent router."""
+    """Compile the single extraction graph, optionally with durable pauses."""
     nodes = ActionExtractionNodes(
         planner=planner,
         limits=limits,
         evidence_validator=EvidenceValidator(),
         date_normalizer=DateNormalizer(),
+        **({"clock": clock} if clock is not None else {}),
     )
     builder = StateGraph(ActionExtractionState)
     builder.add_node(WorkflowNode.VALIDATE_INPUT.value, nodes.validate_input)
@@ -93,6 +213,14 @@ def create_action_extraction_workflow(
     builder.add_node(
         WorkflowNode.READY_FOR_APPROVAL.value,
         nodes.mark_ready_for_approval,
+    )
+    builder.add_node(
+        WorkflowNode.WAIT_FOR_CLARIFICATION.value,
+        nodes.hold_clarification_checkpoint,
+    )
+    builder.add_node(
+        WorkflowNode.WAIT_FOR_APPROVAL.value,
+        nodes.hold_approval_checkpoint,
     )
     builder.add_node(
         WorkflowNode.CLARIFICATION_LIMIT.value,
@@ -125,13 +253,32 @@ def create_action_extraction_workflow(
         WorkflowNode.NORMALIZE_DATES.value,
         nodes.route_after_dates,
     )
-    builder.add_edge(WorkflowNode.NEEDS_CLARIFICATION.value, END)
-    builder.add_edge(WorkflowNode.READY_FOR_APPROVAL.value, END)
+    builder.add_edge(
+        WorkflowNode.NEEDS_CLARIFICATION.value,
+        WorkflowNode.WAIT_FOR_CLARIFICATION.value,
+    )
+    builder.add_edge(
+        WorkflowNode.READY_FOR_APPROVAL.value,
+        WorkflowNode.WAIT_FOR_APPROVAL.value,
+    )
+    builder.add_edge(WorkflowNode.WAIT_FOR_CLARIFICATION.value, END)
+    builder.add_edge(WorkflowNode.WAIT_FOR_APPROVAL.value, END)
     builder.add_edge(WorkflowNode.CLARIFICATION_LIMIT.value, END)
     builder.add_edge(WorkflowNode.FAIL.value, END)
 
     graph = cast(
         CompiledActionExtractionGraph,
-        builder.compile(name="snapflow_action_extraction"),
+        builder.compile(
+            checkpointer=checkpointer,
+            interrupt_before=(
+                [
+                    WorkflowNode.WAIT_FOR_CLARIFICATION.value,
+                    WorkflowNode.WAIT_FOR_APPROVAL.value,
+                ]
+                if checkpointer is not None
+                else None
+            ),
+            name="snapflow_action_extraction",
+        ),
     )
     return ActionExtractionWorkflow(graph=graph)

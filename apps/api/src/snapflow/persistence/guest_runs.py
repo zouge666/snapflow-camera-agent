@@ -143,6 +143,30 @@ class GuestRunRepository:
                 raise RunNotFoundError
             return self._run_view(record)
 
+    def update_run_status(
+        self,
+        session_id: str,
+        run_id: str,
+        status: RunStatus,
+    ) -> RunView:
+        """Persist a public status only for a live run owned by the caller."""
+        now = self._now()
+        with self._session_factory.begin() as database:
+            record = database.scalar(
+                select(RunRecord)
+                .where(
+                    RunRecord.id == run_id,
+                    RunRecord.guest_session_id == session_id,
+                    RunRecord.expires_at > now,
+                )
+                .with_for_update()
+            )
+            if record is None:
+                raise RunNotFoundError
+            record.status = status.value
+            database.flush()
+            return self._run_view(record)
+
     def delete_expired(self) -> tuple[int, int]:
         """Delete expired sessions and runs; database cascades dependent rows."""
         now = self._now()

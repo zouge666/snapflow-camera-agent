@@ -1,6 +1,8 @@
 """Single-purpose nodes and deterministic routing for action extraction."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import ValidationError
@@ -42,6 +44,7 @@ class ActionExtractionNodes:
     limits: WorkflowLimits
     evidence_validator: EvidenceValidator
     date_normalizer: DateNormalizer
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
     def validate_input(
         self,
@@ -391,7 +394,7 @@ class ActionExtractionNodes:
         self,
         state: ActionExtractionState,
     ) -> ActionExtractionStateUpdate:
-        """Stop with a validated plan that can enter future approval."""
+        """Persist the validated plan immediately before approval pauses."""
         self._require_status(
             state,
             WorkflowNode.READY_FOR_APPROVAL,
@@ -401,12 +404,36 @@ class ActionExtractionNodes:
             "status": WorkflowStatus.READY_FOR_APPROVAL,
             "safe_trace": self._trace(
                 WorkflowNode.READY_FOR_APPROVAL,
-                WorkflowEventOutcome.SUCCEEDED,
+                WorkflowEventOutcome.WAITING,
                 WorkflowStatus.READY_FOR_APPROVAL,
                 state["retry_count"],
                 provider=self._provider(state),
             ),
         }
+
+    def hold_clarification_checkpoint(
+        self,
+        state: ActionExtractionState,
+    ) -> ActionExtractionStateUpdate:
+        """No-op target kept behind the durable clarification breakpoint."""
+        self._require_status(
+            state,
+            WorkflowNode.WAIT_FOR_CLARIFICATION,
+            WorkflowStatus.NEEDS_CLARIFICATION,
+        )
+        return {}
+
+    def hold_approval_checkpoint(
+        self,
+        state: ActionExtractionState,
+    ) -> ActionExtractionStateUpdate:
+        """No-op target kept behind the durable approval breakpoint."""
+        self._require_status(
+            state,
+            WorkflowNode.WAIT_FOR_APPROVAL,
+            WorkflowStatus.READY_FOR_APPROVAL,
+        )
+        return {}
 
     def mark_clarification_limit(
         self,
@@ -474,8 +501,8 @@ class ActionExtractionNodes:
         if state["status"] not in allowed:
             raise IllegalWorkflowTransitionError(node, state["status"])
 
-    @staticmethod
     def _trace(
+        self,
         node: WorkflowNode,
         outcome: WorkflowEventOutcome,
         status: WorkflowStatus,
@@ -489,6 +516,7 @@ class ActionExtractionNodes:
                 node=node,
                 outcome=outcome,
                 status=status,
+                occurred_at=self.clock(),
                 provider=provider,
                 retry_count=retry_count,
                 failure_code=failure.code if failure is not None else None,

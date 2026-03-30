@@ -3,9 +3,10 @@
 import json
 from dataclasses import dataclass
 from importlib.metadata import version
-from typing import cast
+from typing import Any, NoReturn, cast
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
 from snapflow.application.build_plan import BuildActionPlan
 from snapflow.domain.action_plan import (
@@ -22,6 +23,8 @@ from snapflow.providers.base import (
 from snapflow.providers.mock import MockProvider
 from snapflow.workflow.graph import (
     ActionExtractionWorkflow,
+    WorkflowCheckpointError,
+    WorkflowCheckpointNotFoundError,
     create_action_extraction_workflow,
 )
 from snapflow.workflow.state import (
@@ -152,6 +155,8 @@ def test_compiled_topology_matches_the_reviewed_single_workflow() -> None:
         "validate_evidence",
         "validate_input",
         "validate_schema",
+        "wait_for_approval",
+        "wait_for_clarification",
     ]
     assert edges == [
         ("__start__", "validate_input", False),
@@ -160,12 +165,12 @@ def test_compiled_topology_matches_the_reviewed_single_workflow() -> None:
         ("extract_actions", "retry_provider", True),
         ("extract_actions", "validate_schema", True),
         ("fail", "__end__", False),
-        ("needs_clarification", "__end__", False),
+        ("needs_clarification", "wait_for_clarification", False),
         ("normalize_dates", "clarification_limit", True),
         ("normalize_dates", "fail", True),
         ("normalize_dates", "needs_clarification", True),
         ("normalize_dates", "ready_for_approval", True),
-        ("ready_for_approval", "__end__", False),
+        ("ready_for_approval", "wait_for_approval", False),
         ("retry_provider", "extract_actions", False),
         ("validate_evidence", "fail", True),
         ("validate_evidence", "normalize_dates", True),
@@ -173,6 +178,8 @@ def test_compiled_topology_matches_the_reviewed_single_workflow() -> None:
         ("validate_input", "fail", True),
         ("validate_schema", "fail", True),
         ("validate_schema", "validate_evidence", True),
+        ("wait_for_approval", "__end__", False),
+        ("wait_for_clarification", "__end__", False),
     ]
     assert all("agent" not in node and "router" not in node for node in nodes)
 
@@ -318,6 +325,134 @@ def test_timeout_retries_twice_then_fails_closed() -> None:
     assert str(raised.value) == (
         "Action extraction stopped after the provider retry limit."
     )
+
+
+def test_checkpoint_pause_load_and_duplicate_load_do_not_rerun_nodes() -> None:
+    provider = RecordingProvider(empty_plan())
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+
+    started = workflow.start("run_checkpoint-test", sample_request())
+    loaded = workflow.load("run_checkpoint-test")
+    loaded_again = workflow.load("run_checkpoint-test")
+
+    assert started.status is WorkflowStatus.READY_FOR_APPROVAL
+    assert loaded == started
+    assert loaded_again == started
+    assert provider.calls == 1
+    assert workflow.graph.get_state(
+        workflow._checkpoint_config("run_checkpoint-test")
+    ).next == (WorkflowNode.WAIT_FOR_APPROVAL.value,)
+
+
+def test_clarification_path_pauses_before_the_future_answer_node() -> None:
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(MockProvider()),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+
+    started = workflow.start("run_clarification-checkpoint", sample_request())
+
+    assert started.status is WorkflowStatus.NEEDS_CLARIFICATION
+    assert workflow.graph.get_state(
+        workflow._checkpoint_config("run_clarification-checkpoint")
+    ).next == (WorkflowNode.WAIT_FOR_CLARIFICATION.value,)
+
+
+def test_missing_checkpoint_fails_without_starting_the_provider() -> None:
+    provider = RecordingProvider(empty_plan())
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+
+    with pytest.raises(WorkflowCheckpointNotFoundError):
+        workflow.load("run_missing-checkpoint")
+
+    assert provider.calls == 0
+
+
+def test_checkpoint_write_failure_is_safe_and_does_not_claim_a_pause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = RecordingProvider(empty_plan())
+    saver = InMemorySaver()
+
+    def fail_write(*args: object, **kwargs: object) -> NoReturn:
+        del args, kwargs
+        raise OSError("private checkpoint storage detail")
+
+    monkeypatch.setattr(saver, "put", fail_write)
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=saver,
+    )
+
+    with pytest.raises(WorkflowCheckpointError) as raised:
+        workflow.start("run_failed-checkpoint", sample_request())
+
+    assert str(raised.value) == "The workflow checkpoint could not be saved."
+    assert "Northstar" not in str(raised.value)
+
+
+def test_incomplete_checkpoint_continues_without_rerunning_completed_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = RecordingProvider(empty_plan())
+    saver = InMemorySaver()
+    original_put = saver.put
+    writes = 0
+
+    def fail_fourth_write(*args: Any, **kwargs: Any) -> Any:
+        nonlocal writes
+        writes += 1
+        if writes == 4:
+            raise OSError("transient checkpoint failure")
+        return original_put(*args, **kwargs)
+
+    monkeypatch.setattr(saver, "put", fail_fourth_write)
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=saver,
+    )
+
+    with pytest.raises(WorkflowCheckpointError):
+        workflow.start("run_incomplete-checkpoint", sample_request())
+    assert provider.calls == 1
+
+    monkeypatch.setattr(saver, "put", original_put)
+    recovered = workflow.recover_or_start(
+        "run_incomplete-checkpoint",
+        sample_request(),
+    )
+
+    assert recovered.status is WorkflowStatus.READY_FOR_APPROVAL
+    assert provider.calls == 1
+
+
+def test_checkpointed_provider_retry_limit_is_not_reset_by_loading() -> None:
+    provider = TimeoutProvider()
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(max_provider_retries=2),
+        checkpointer=InMemorySaver(),
+    )
+
+    with pytest.raises(ActionExtractionWorkflowError) as started:
+        workflow.start("run_retry-checkpoint", sample_request())
+    with pytest.raises(ActionExtractionWorkflowError) as loaded:
+        workflow.load("run_retry-checkpoint")
+
+    assert started.value.retry_count == 2
+    assert loaded.value.retry_count == 2
+    assert provider.calls == 3
 
 
 def test_clarification_round_limit_is_a_real_terminal_path() -> None:

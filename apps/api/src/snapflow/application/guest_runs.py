@@ -1,11 +1,35 @@
-"""Use cases for guest credentials and idempotent run creation."""
+"""Use cases for guest credentials and recoverable workflow runs."""
 
 from dataclasses import dataclass
 from datetime import datetime
 
-from snapflow.domain.run_contract import CreateRunRequest, GuestSessionResponse
+from snapflow.domain.action_plan import ActionPlanRequest
+from snapflow.domain.run_contract import (
+    ActionItem,
+    ActionPriority,
+    ClarificationAnswerKind,
+    ClarificationQuestion,
+    CreateRunRequest,
+    Evidence,
+    GuestSessionResponse,
+    ResumeRunRequest,
+    RunStatus,
+    RunView,
+    SafeTraceEvent,
+    TraceOutcome,
+)
 from snapflow.persistence.guest_runs import CreatedRun, GuestRunRepository
 from snapflow.security.guest_tokens import GuestPrincipal, GuestTokenService
+from snapflow.workflow.graph import (
+    ActionExtractionWorkflow,
+    WorkflowCheckpointNotFoundError,
+)
+from snapflow.workflow.state import (
+    ActionExtractionRun,
+    ActionExtractionWorkflowError,
+    WorkflowEventOutcome,
+    WorkflowStatus,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +38,7 @@ class GuestRunService:
 
     repository: GuestRunRepository
     tokens: GuestTokenService
+    workflow: ActionExtractionWorkflow | None = None
 
     def create_session(self) -> GuestSessionResponse:
         """Create a persistent guest and issue its first access token."""
@@ -34,12 +59,153 @@ class GuestRunService:
         idempotency_key: str,
         request: CreateRunRequest,
     ) -> CreatedRun:
-        """Authenticate the guest and persist one idempotent run."""
+        """Persist one idempotent run and pause its durable workflow."""
         principal = self.tokens.verify(bearer_token)
-        return self.repository.create_run(
+        created = self.repository.create_run(
             principal.session_id,
             idempotency_key,
             request,
+        )
+        if self.workflow is None:
+            return created
+
+        try:
+            workflow_run = self.workflow.recover_or_start(
+                created.run.run_id,
+                self._workflow_request(request),
+            )
+        except ActionExtractionWorkflowError:
+            self.repository.update_run_status(
+                principal.session_id,
+                created.run.run_id,
+                RunStatus.FATAL_FAILURE,
+            )
+            raise
+
+        status = self._public_status(workflow_run.status)
+        persisted = self.repository.update_run_status(
+            principal.session_id,
+            created.run.run_id,
+            status,
+        )
+        return CreatedRun(
+            run=self._run_view(persisted, workflow_run, status),
+            created=created.created,
+        )
+
+    def resume_run(
+        self,
+        bearer_token: str,
+        run_id: str,
+        request: ResumeRunRequest,
+    ) -> RunView:
+        """Authorize and load the latest checkpoint without rerunning nodes."""
+        del request
+        principal = self.tokens.verify(bearer_token)
+        persisted = self.repository.get_owned_run(principal.session_id, run_id)
+        if self.workflow is None:
+            raise WorkflowCheckpointNotFoundError
+        workflow_run = self.workflow.load(run_id)
+        status = self._public_status(workflow_run.status)
+        if persisted.status is not status:
+            persisted = self.repository.update_run_status(
+                principal.session_id,
+                run_id,
+                status,
+            )
+        return self._run_view(persisted, workflow_run, status)
+
+    @staticmethod
+    def _workflow_request(request: CreateRunRequest) -> ActionPlanRequest:
+        return ActionPlanRequest(
+            source_text=request.source_text,
+            locale=request.locale,
+            timezone=request.timezone,
+            reference_date=request.reference_date,
+        )
+
+    @staticmethod
+    def _public_status(status: WorkflowStatus) -> RunStatus:
+        status_map = {
+            WorkflowStatus.NEEDS_CLARIFICATION: (
+                RunStatus.INTERRUPTED_FOR_CLARIFICATION
+            ),
+            WorkflowStatus.READY_FOR_APPROVAL: RunStatus.INTERRUPTED_FOR_APPROVAL,
+        }
+        try:
+            return status_map[status]
+        except KeyError as error:
+            raise ValueError("workflow did not reach a recoverable pause") from error
+
+    @staticmethod
+    def _run_view(
+        persisted: RunView,
+        workflow_run: ActionExtractionRun,
+        status: RunStatus,
+    ) -> RunView:
+        actions = tuple(
+            ActionItem(
+                id=action.id,
+                title=action.title,
+                owner=action.owner,
+                due_date=action.due.iso_date if action.due is not None else None,
+                due_text=action.due.raw_text if action.due is not None else None,
+                priority=ActionPriority(action.priority),
+                evidence=tuple(
+                    Evidence(quote=item.quote, start=item.start, end=item.end)
+                    for item in action.evidence
+                ),
+            )
+            for action in workflow_run.plan.candidate_actions
+        )
+        questions = tuple(
+            ClarificationQuestion(
+                id=question.id,
+                field_path=question.field_path,
+                question=question.question,
+                reason=question.reason,
+                answer_kind=ClarificationAnswerKind.FREE_TEXT,
+                options=(),
+                evidence=(
+                    Evidence(
+                        quote=question.evidence.quote,
+                        start=question.evidence.start,
+                        end=question.evidence.end,
+                    )
+                    if question.evidence is not None
+                    else None
+                ),
+            )
+            for question in workflow_run.plan.clarifications
+        )
+        outcome_map = {
+            WorkflowEventOutcome.SUCCEEDED: TraceOutcome.SUCCEEDED,
+            WorkflowEventOutcome.FAILED: TraceOutcome.FAILED,
+            WorkflowEventOutcome.RETRYING: TraceOutcome.RETRYING,
+            WorkflowEventOutcome.WAITING: TraceOutcome.INTERRUPTED,
+        }
+        trace = tuple(
+            SafeTraceEvent(
+                sequence=sequence,
+                node=event.node.value,
+                outcome=outcome_map[event.outcome],
+                occurred_at=event.occurred_at,
+                provider=event.provider,
+                schema_version="1.0",
+                retry_count=event.retry_count,
+            )
+            for sequence, event in enumerate(workflow_run.safe_trace)
+        )
+        return RunView(
+            schema_version="1.0",
+            run_id=persisted.run_id,
+            status=status,
+            candidate_items=actions,
+            clarification_questions=questions,
+            clarification_count=workflow_run.clarification_count,
+            safe_trace=trace,
+            created_at=persisted.created_at,
+            expires_at=persisted.expires_at,
         )
 
     @staticmethod

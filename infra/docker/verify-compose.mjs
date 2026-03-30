@@ -24,7 +24,7 @@ assert.equal(config.name, "snapflow-local");
 assert.deepEqual(Object.keys(config.services).sort(), ["api", "postgres"]);
 assert.ok(config.volumes.postgres_data);
 
-assert.match(postgres.image, /^postgres:18\.4-bookworm@sha256:[0-9a-f]{64}$/);
+assert.match(postgres.image, /^postgres:18\.1@sha256:[0-9a-f]{64}$/);
 assert.equal(postgres.environment.POSTGRES_DB, "snapflow");
 assert.equal(postgres.environment.POSTGRES_USER, "snapflow");
 assert.equal(postgres.environment.POSTGRES_PASSWORD, "snapflow-local-only");
@@ -83,7 +83,7 @@ const dockerfile = readFileSync(
 );
 assert.match(
   dockerfile,
-  /^FROM python:3\.13\.14-slim-bookworm@sha256:[0-9a-f]{64}$/m,
+  /^FROM python:3\.13\.11-slim-bookworm@sha256:[0-9a-f]{64}$/m,
 );
 assert.ok(!/^COPY\s+\.\s/m.test(dockerfile));
 
