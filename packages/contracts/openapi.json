@@ -422,6 +422,15 @@
         "additionalProperties": false,
         "description": "A focused question for one unresolved candidate field.",
         "properties": {
+          "answer_kind": {
+            "default": "free_text",
+            "enum": [
+              "option",
+              "free_text"
+            ],
+            "title": "Answer Kind",
+            "type": "string"
+          },
           "evidence": {
             "anyOf": [
               {
@@ -442,6 +451,15 @@
             "pattern": "^clarification-[1-9][0-9]*$",
             "title": "Id",
             "type": "string"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Options",
+            "type": "array"
           },
           "question": {
             "maxLength": 300,

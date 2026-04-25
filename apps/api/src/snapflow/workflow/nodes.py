@@ -5,10 +5,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+from langgraph.types import interrupt
 from pydantic import ValidationError
 
 from snapflow.application.build_plan import BuildActionPlan
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
+from snapflow.domain.clarifications import (
+    ClarificationResolution,
+    ClarificationResolver,
+    ClarificationValidationError,
+)
 from snapflow.domain.dates import DateNormalizer, DateValidationError
 from snapflow.domain.evidence import EvidenceValidationError, EvidenceValidator
 from snapflow.providers.base import ProviderError, ProviderInvalidOutputError
@@ -28,11 +34,17 @@ AfterInputRoute = Literal["extract_actions", "fail"]
 AfterExtractionRoute = Literal["validate_schema", "retry_provider", "fail"]
 AfterSchemaRoute = Literal["validate_evidence", "fail"]
 AfterEvidenceRoute = Literal["normalize_dates", "fail"]
-AfterDatesRoute = Literal[
+AfterDatesRoute = Literal["validate_clarifications", "fail"]
+AfterClarificationValidationRoute = Literal[
     "needs_clarification",
     "ready_for_approval",
     "clarification_limit",
     "fail",
+]
+AfterClarificationAnswerRoute = Literal[
+    "needs_clarification",
+    "ready_for_approval",
+    "clarification_limit",
 ]
 
 
@@ -44,6 +56,8 @@ class ActionExtractionNodes:
     limits: WorkflowLimits
     evidence_validator: EvidenceValidator
     date_normalizer: DateNormalizer
+    clarification_resolver: ClarificationResolver
+    interrupts_enabled: bool
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
     def validate_input(
@@ -349,7 +363,7 @@ class ActionExtractionNodes:
         }
 
     def route_after_dates(self, state: ActionExtractionState) -> AfterDatesRoute:
-        """Deterministically separate clarification and approval-ready plans."""
+        """Validate the field matrix after dates have been normalized."""
         if state["status"] is WorkflowStatus.FATAL_FAILURE:
             return WorkflowNode.FAIL.value
         self._require_status(
@@ -357,10 +371,68 @@ class ActionExtractionNodes:
             WorkflowNode.NORMALIZE_DATES,
             WorkflowStatus.DATES_NORMALIZED,
         )
+        return WorkflowNode.VALIDATE_CLARIFICATIONS.value
+
+    def validate_clarifications(
+        self,
+        state: ActionExtractionState,
+    ) -> ActionExtractionStateUpdate:
+        """Reject unsupported, unsourced, or mismatched provider questions."""
+        self._require_status(
+            state,
+            WorkflowNode.VALIDATE_CLARIFICATIONS,
+            WorkflowStatus.DATES_NORMALIZED,
+        )
         plan = state["candidate_plan"]
         if plan is None:
             raise IllegalWorkflowTransitionError(
-                WorkflowNode.NORMALIZE_DATES,
+                WorkflowNode.VALIDATE_CLARIFICATIONS,
+                state["status"],
+            )
+        try:
+            validated_plan = self.clarification_resolver.validate_plan(plan)
+        except ClarificationValidationError as error:
+            failure = WorkflowFailure.from_clarification_error(error)
+            return {
+                "status": WorkflowStatus.FATAL_FAILURE,
+                "candidate_plan": None,
+                "failure": failure,
+                "safe_trace": self._trace(
+                    WorkflowNode.VALIDATE_CLARIFICATIONS,
+                    WorkflowEventOutcome.FAILED,
+                    WorkflowStatus.FATAL_FAILURE,
+                    state["retry_count"],
+                    failure=failure,
+                ),
+            }
+        return {
+            "status": WorkflowStatus.CLARIFICATIONS_VALIDATED,
+            "candidate_plan": validated_plan,
+            "safe_trace": self._trace(
+                WorkflowNode.VALIDATE_CLARIFICATIONS,
+                WorkflowEventOutcome.SUCCEEDED,
+                WorkflowStatus.CLARIFICATIONS_VALIDATED,
+                state["retry_count"],
+                provider=validated_plan.provider,
+            ),
+        }
+
+    def route_after_clarification_validation(
+        self,
+        state: ActionExtractionState,
+    ) -> AfterClarificationValidationRoute:
+        """Separate a validated question from an approval-ready plan."""
+        if state["status"] is WorkflowStatus.FATAL_FAILURE:
+            return WorkflowNode.FAIL.value
+        self._require_status(
+            state,
+            WorkflowNode.VALIDATE_CLARIFICATIONS,
+            WorkflowStatus.CLARIFICATIONS_VALIDATED,
+        )
+        plan = state["candidate_plan"]
+        if plan is None:
+            raise IllegalWorkflowTransitionError(
+                WorkflowNode.VALIDATE_CLARIFICATIONS,
                 state["status"],
             )
         if plan.clarifications:
@@ -377,7 +449,8 @@ class ActionExtractionNodes:
         self._require_status(
             state,
             WorkflowNode.NEEDS_CLARIFICATION,
-            WorkflowStatus.DATES_NORMALIZED,
+            WorkflowStatus.CLARIFICATIONS_VALIDATED,
+            WorkflowStatus.CLARIFICATION_RECEIVED,
         )
         return {
             "status": WorkflowStatus.NEEDS_CLARIFICATION,
@@ -398,7 +471,8 @@ class ActionExtractionNodes:
         self._require_status(
             state,
             WorkflowNode.READY_FOR_APPROVAL,
-            WorkflowStatus.DATES_NORMALIZED,
+            WorkflowStatus.CLARIFICATIONS_VALIDATED,
+            WorkflowStatus.CLARIFICATION_RECEIVED,
         )
         return {
             "status": WorkflowStatus.READY_FOR_APPROVAL,
@@ -415,13 +489,64 @@ class ActionExtractionNodes:
         self,
         state: ActionExtractionState,
     ) -> ActionExtractionStateUpdate:
-        """No-op target kept behind the durable clarification breakpoint."""
+        """Pause durably, then apply one typed answer without provider work."""
         self._require_status(
             state,
             WorkflowNode.WAIT_FOR_CLARIFICATION,
             WorkflowStatus.NEEDS_CLARIFICATION,
         )
-        return {}
+        if not self.interrupts_enabled:
+            return {}
+        plan = state["candidate_plan"]
+        if plan is None or not plan.clarifications:
+            raise IllegalWorkflowTransitionError(
+                WorkflowNode.WAIT_FOR_CLARIFICATION,
+                state["status"],
+            )
+        pending = plan.clarifications[0]
+        resolution = ClarificationResolution.model_validate(
+            interrupt(pending.model_dump(mode="json"))
+        )
+        updated_plan = self.clarification_resolver.resolve(
+            state["request"],
+            plan,
+            resolution,
+        )
+        clarification_count = state["clarification_count"] + 1
+        return {
+            "status": WorkflowStatus.CLARIFICATION_RECEIVED,
+            "candidate_plan": updated_plan,
+            "clarification_count": clarification_count,
+            "safe_trace": self._trace(
+                WorkflowNode.WAIT_FOR_CLARIFICATION,
+                WorkflowEventOutcome.SUCCEEDED,
+                WorkflowStatus.CLARIFICATION_RECEIVED,
+                state["retry_count"],
+                provider=updated_plan.provider,
+            ),
+        }
+
+    def route_after_clarification_answer(
+        self,
+        state: ActionExtractionState,
+    ) -> AfterClarificationAnswerRoute:
+        """Ask the next bounded question or continue to approval."""
+        self._require_status(
+            state,
+            WorkflowNode.WAIT_FOR_CLARIFICATION,
+            WorkflowStatus.CLARIFICATION_RECEIVED,
+        )
+        plan = state["candidate_plan"]
+        if plan is None:
+            raise IllegalWorkflowTransitionError(
+                WorkflowNode.WAIT_FOR_CLARIFICATION,
+                state["status"],
+            )
+        if not plan.clarifications:
+            return WorkflowNode.READY_FOR_APPROVAL.value
+        if state["clarification_count"] >= self.limits.max_clarifications:
+            return WorkflowNode.CLARIFICATION_LIMIT.value
+        return WorkflowNode.NEEDS_CLARIFICATION.value
 
     def hold_approval_checkpoint(
         self,
@@ -443,7 +568,8 @@ class ActionExtractionNodes:
         self._require_status(
             state,
             WorkflowNode.CLARIFICATION_LIMIT,
-            WorkflowStatus.DATES_NORMALIZED,
+            WorkflowStatus.CLARIFICATIONS_VALIDATED,
+            WorkflowStatus.CLARIFICATION_RECEIVED,
         )
         failure = WorkflowFailure.clarification_limit()
         return {

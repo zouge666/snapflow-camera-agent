@@ -2812,6 +2812,73 @@ main:focus {
   background: var(--paper);
 }
 
+.clarification-list > p:not(.section-kicker),
+.clarification-form .privacy-note {
+  max-width: 48rem;
+  color: rgb(255 253 248 / 66%);
+  line-height: 1.65;
+}
+
+.clarification-list > span {
+  display: inline-block;
+  margin: 0.75rem 0 1.25rem;
+  color: var(--acid);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.clarification-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 48rem;
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: var(--radius-medium);
+}
+
+.clarification-form label > span,
+.clarification-form legend {
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.clarification-form input[type="text"] {
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 0.55rem;
+  padding: 0.75rem 0.9rem;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+}
+
+.clarification-form fieldset {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.clarification-form fieldset label {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.clarification-form [role="alert"] {
+  margin: 0;
+  color: #ffe8e2;
+}
+
+.clarification-form .button {
+  justify-self: start;
+}
+
 .run-boundary {
   position: sticky;
   top: 1rem;

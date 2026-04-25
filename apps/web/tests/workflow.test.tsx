@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { RunView } from "../lib/api/generated/types.gen";
 import { POST as proxyActionPlan } from "../app/api/demo/action-plan/route";
 import {
   ActionPlanClientError,
@@ -91,8 +92,44 @@ const emptyPlan: ActionPlanResponse = {
   clarifications: [],
 };
 
+const clarificationRun: RunView = {
+  schema_version: "1.0",
+  run_id: "run_clarification-test",
+  status: "interrupted_for_clarification",
+  candidate_items: [],
+  clarification_questions: [
+    {
+      id: "clarification-1",
+      field_path: "candidate_items[0].owner",
+      question: "Who owns the launch checklist action?",
+      reason: "The reviewed text names two possible owners.",
+      answer_kind: "option",
+      options: ["Alex", "Mina"],
+      evidence: { quote: "Alex or Mina", start: 0, end: 12 },
+    },
+  ],
+  clarification_count: 0,
+  safe_trace: [
+    {
+      sequence: 0,
+      node: "needs_clarification",
+      outcome: "interrupted",
+      occurred_at: "2026-01-15T10:00:00Z",
+      schema_version: "1.0",
+    },
+  ],
+  created_at: "2026-01-15T10:00:00Z",
+  expires_at: "2026-01-16T10:00:00Z",
+};
+
 const renderPanel = (state: WorkflowState) =>
-  renderToStaticMarkup(<ActionPlanPanel state={state} onRetry={() => undefined} />);
+  renderToStaticMarkup(
+    <ActionPlanPanel
+      state={state}
+      onRetry={() => undefined}
+      onAnswerClarification={() => undefined}
+    />,
+  );
 
 describe("temporary action-plan client", () => {
   it("posts only the confirmed text context and parses the typed response", async () => {
@@ -213,6 +250,51 @@ describe("workflow states", () => {
     expect(empty).toEqual({ status: "ready", plan: emptyPlan, request });
     expect(actions).toEqual({ status: "ready", plan, request });
     expect(invalidated).toEqual(initialWorkflowState);
+  });
+
+  it("keeps the same interrupted run while an answer is pending or rejected", () => {
+    const interrupted = workflowReducer(initialWorkflowState, {
+      type: "receive-clarification",
+      run: clarificationRun,
+      referenceDate: "2026-01-15",
+    });
+    const answering = workflowReducer(interrupted, {
+      type: "request-clarification-answer",
+    });
+    const failed = workflowReducer(answering, {
+      type: "fail-clarification-answer",
+      message: "That answer does not resolve the current clarification.",
+    });
+
+    expect(answering).toMatchObject({
+      status: "clarifying",
+      run: clarificationRun,
+      isAnswering: true,
+    });
+    expect(failed).toMatchObject({
+      status: "clarifying",
+      run: clarificationRun,
+      isAnswering: false,
+      message: "That answer does not resolve the current clarification.",
+    });
+  });
+
+  it("renders a typed option question with reason, evidence and no default answer", () => {
+    const markup = renderPanel({
+      status: "clarifying",
+      run: clarificationRun,
+      referenceDate: "2026-01-15",
+      isAnswering: false,
+    });
+
+    expect(markup).toContain("Clarification 1 of 2");
+    expect(markup).toContain("Who owns the launch checklist action?");
+    expect(markup).toContain("The reviewed text names two possible owners.");
+    expect(markup).toContain("Alex or Mina");
+    expect(markup).toContain("Resume this run");
+    expect(markup).toContain("does not create another model request");
+    expect(markup).not.toContain('checked=""');
+    expect(markup).toContain('disabled=""');
   });
 
   it("renders explicit loading and retryable error states", () => {

@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from snapflow.application.guest_runs import GuestRunService
 from snapflow.domain.run_contract import (
+    ClarificationAnswerRequest,
     CreateRunRequest,
     ErrorEnvelope,
     GuestSessionResponse,
@@ -25,6 +26,8 @@ from snapflow.security.guest_tokens import InvalidGuestTokenError
 from snapflow.workflow.graph import (
     WorkflowCheckpointError,
     WorkflowCheckpointNotFoundError,
+    WorkflowClarificationAnswerError,
+    WorkflowClarificationConflictError,
 )
 from snapflow.workflow.state import ActionExtractionWorkflowError
 
@@ -226,6 +229,77 @@ def create_guest_run_router(service: GuestRunService) -> APIRouter:
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 PublicErrorCode.INTERNAL_ERROR,
                 "The run checkpoint could not be loaded safely.",
+                retryable=True,
+            )
+        return RunResponse(schema_version="1.0", run=run)
+
+    @router.post(
+        "/api/runs/{run_id}/clarifications",
+        operation_id="answer_clarification",
+        response_model=RunResponse,
+        responses=ERROR_RESPONSES,
+    )
+    def answer_clarification(
+        run_id: Annotated[
+            str,
+            Path(
+                min_length=8,
+                max_length=100,
+                pattern=r"^run_[A-Za-z0-9_-]+$",
+            ),
+        ],
+        request: Annotated[ClarificationAnswerRequest, Body()],
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(bearer_scheme),
+        ],
+    ) -> RunResponse | Response:
+        token = _bearer_token(credentials)
+        if isinstance(token, JSONResponse):
+            return token
+        try:
+            run = service.answer_clarification(token, run_id, request)
+        except (InvalidGuestTokenError, GuestSessionNotFoundError):
+            return _error(
+                status.HTTP_401_UNAUTHORIZED,
+                PublicErrorCode.UNAUTHORIZED,
+                "The guest session is invalid or expired.",
+            )
+        except RunNotFoundError:
+            return _error(
+                status.HTTP_404_NOT_FOUND,
+                PublicErrorCode.RUN_NOT_FOUND,
+                "The requested run was not found.",
+            )
+        except WorkflowClarificationConflictError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "This clarification is stale or has already been answered.",
+            )
+        except WorkflowClarificationAnswerError:
+            return _error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                PublicErrorCode.INVALID_REQUEST,
+                "The answer does not resolve the current clarification.",
+            )
+        except ActionExtractionWorkflowError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "The clarification limit was reached before the run was resolved.",
+            )
+        except WorkflowCheckpointNotFoundError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "The run checkpoint is unavailable.",
+            )
+        except WorkflowCheckpointError:
+            return _error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                PublicErrorCode.INTERNAL_ERROR,
+                "The clarification could not be checkpointed safely.",
                 retryable=True,
             )
         return RunResponse(schema_version="1.0", run=run)

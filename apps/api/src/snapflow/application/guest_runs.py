@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from snapflow.domain.action_plan import ActionPlanRequest
+from snapflow.domain.clarifications import ClarificationResolution
 from snapflow.domain.run_contract import (
     ActionItem,
     ActionPriority,
     ClarificationAnswerKind,
+    ClarificationAnswerRequest,
     ClarificationQuestion,
     CreateRunRequest,
     Evidence,
@@ -23,6 +25,7 @@ from snapflow.security.guest_tokens import GuestPrincipal, GuestTokenService
 from snapflow.workflow.graph import (
     ActionExtractionWorkflow,
     WorkflowCheckpointNotFoundError,
+    WorkflowClarificationConflictError,
 )
 from snapflow.workflow.state import (
     ActionExtractionRun,
@@ -115,6 +118,41 @@ class GuestRunService:
             )
         return self._run_view(persisted, workflow_run, status)
 
+    def answer_clarification(
+        self,
+        bearer_token: str,
+        run_id: str,
+        request: ClarificationAnswerRequest,
+    ) -> RunView:
+        """Authorize and consume exactly the current clarification interrupt."""
+        principal = self.tokens.verify(bearer_token)
+        persisted = self.repository.get_owned_run(principal.session_id, run_id)
+        if persisted.status is not RunStatus.INTERRUPTED_FOR_CLARIFICATION:
+            raise WorkflowClarificationConflictError
+        if self.workflow is None:
+            raise WorkflowCheckpointNotFoundError
+        resolution = ClarificationResolution(
+            clarification_id=request.clarification_id,
+            kind=request.kind.value,
+            answer=request.answer,
+        )
+        try:
+            workflow_run = self.workflow.answer_clarification(run_id, resolution)
+        except ActionExtractionWorkflowError:
+            self.repository.update_run_status(
+                principal.session_id,
+                run_id,
+                RunStatus.FATAL_FAILURE,
+            )
+            raise
+        status = self._public_status(workflow_run.status)
+        persisted = self.repository.update_run_status(
+            principal.session_id,
+            run_id,
+            status,
+        )
+        return self._run_view(persisted, workflow_run, status)
+
     @staticmethod
     def _workflow_request(request: CreateRunRequest) -> ActionPlanRequest:
         return ActionPlanRequest(
@@ -161,11 +199,11 @@ class GuestRunService:
         questions = tuple(
             ClarificationQuestion(
                 id=question.id,
-                field_path=question.field_path,
+                field_path=GuestRunService._public_field_path(question.field_path),
                 question=question.question,
                 reason=question.reason,
-                answer_kind=ClarificationAnswerKind.FREE_TEXT,
-                options=(),
+                answer_kind=ClarificationAnswerKind(question.answer_kind),
+                options=question.options,
                 evidence=(
                     Evidence(
                         quote=question.evidence.quote,
@@ -176,7 +214,7 @@ class GuestRunService:
                     else None
                 ),
             )
-            for question in workflow_run.plan.clarifications
+            for question in workflow_run.plan.clarifications[:1]
         )
         outcome_map = {
             WorkflowEventOutcome.SUCCEEDED: TraceOutcome.SUCCEEDED,
@@ -206,6 +244,12 @@ class GuestRunService:
             safe_trace=trace,
             created_at=persisted.created_at,
             expires_at=persisted.expires_at,
+        )
+
+    @staticmethod
+    def _public_field_path(field_path: str) -> str:
+        return field_path.replace("candidate_actions", "candidate_items").replace(
+            ".due", ".due_date"
         )
 
     @staticmethod

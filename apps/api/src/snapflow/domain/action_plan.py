@@ -134,6 +134,8 @@ class Clarification(BaseModel):
     field_path: str = Field(min_length=1, max_length=240)
     question: str = Field(min_length=1, max_length=300)
     reason: str = Field(min_length=1, max_length=500)
+    answer_kind: Literal["option", "free_text"] = "free_text"
+    options: tuple[str, ...] = Field(default=(), max_length=20)
     evidence: EvidenceRange | None
 
     @field_validator("field_path", "question", "reason")
@@ -143,6 +145,31 @@ class Clarification(BaseModel):
             message = "clarification text must contain non-whitespace text"
             raise ValueError(message)
         return value
+
+    @field_validator("options")
+    @classmethod
+    def options_must_be_distinct_and_non_blank(
+        cls,
+        values: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        normalized = tuple(value.strip() for value in values)
+        if any(not value for value in normalized):
+            message = "clarification options must contain non-whitespace text"
+            raise ValueError(message)
+        if len(set(normalized)) != len(normalized):
+            message = "clarification options must be distinct"
+            raise ValueError(message)
+        return normalized
+
+    @model_validator(mode="after")
+    def answer_kind_must_match_options(self) -> Self:
+        if self.answer_kind == "option" and len(self.options) < 2:
+            message = "option clarification must include at least two choices"
+            raise ValueError(message)
+        if self.answer_kind == "free_text" and self.options:
+            message = "free-text clarification cannot include options"
+            raise ValueError(message)
+        return self
 
 
 class ActionPlanResponse(BaseModel):

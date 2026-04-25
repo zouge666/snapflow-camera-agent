@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 import { POST as proxyCreateSession } from "../app/api/guest-sessions/route";
 import { POST as proxyRefreshSession } from "../app/api/guest-sessions/refresh/route";
 import { POST as proxyCreateRun } from "../app/api/runs/route";
+import { POST as proxyAnswerClarification } from "../app/api/runs/[runId]/clarifications/route";
+import { POST as proxyResumeRun } from "../app/api/runs/[runId]/resume/route";
 import {
+  answerGuestRunClarification,
   createGuestRun,
   ensureGuestSession,
   GuestSessionClientError,
+  parseRunResponse,
+  readActiveGuestRun,
+  resumeGuestRun,
 } from "../features/session/guest-session-client";
 
 class MemorySessionStorage implements Storage {
@@ -53,7 +59,79 @@ function guestSession(
   } as const;
 }
 
+function runResponse(
+  status:
+    | "interrupted_for_clarification"
+    | "interrupted_for_approval" = "interrupted_for_approval",
+) {
+  return {
+    schema_version: "1.0",
+    run: {
+      schema_version: "1.0",
+      run_id: "run_same-idempotent-result",
+      status,
+      candidate_items: [
+        {
+          id: "action-1",
+          title: "Prepare the release notes",
+          owner: "Alex",
+          due_date: "2026-01-22",
+          due_text: "before the review",
+          priority: "unknown",
+          evidence: [{ quote: "Prepare the release notes", start: 0, end: 25 }],
+        },
+      ],
+      clarification_questions:
+        status === "interrupted_for_clarification"
+          ? [
+              {
+                id: "clarification-1",
+                field_path: "candidate_items[0].due_date",
+                question: "What date is the review?",
+                reason: "The reviewed text does not contain a calendar date.",
+                answer_kind: "free_text",
+                options: [],
+                evidence: { quote: "before the review", start: 26, end: 43 },
+              },
+            ]
+          : [],
+      clarification_count: status === "interrupted_for_approval" ? 1 : 0,
+      safe_trace: [
+        {
+          sequence: 0,
+          node: "needs_clarification",
+          outcome: "interrupted",
+          occurred_at: "2026-01-15T10:00:00Z",
+          provider: "mock",
+          schema_version: "1.0",
+          retry_count: 0,
+        },
+      ],
+      created_at: "2026-01-15T10:00:00Z",
+      expires_at: "2026-01-16T10:00:00Z",
+    },
+  } as const;
+}
+
 describe("guest session client", () => {
+  it("rejects an option clarification that cannot offer a real choice", () => {
+    const response = runResponse("interrupted_for_clarification");
+    const run = {
+      ...response.run,
+      clarification_questions: [
+        {
+          ...response.run.clarification_questions[0],
+          answer_kind: "option",
+          options: ["Alex"],
+        },
+      ],
+    };
+
+    expect(() => parseRunResponse({ ...response, run })).toThrow(
+      "response this app does not understand",
+    );
+  });
+
   it("creates once and reuses credentials only from the supplied session storage", async () => {
     const storage = new MemorySessionStorage();
     const calls: string[] = [];
@@ -123,10 +201,7 @@ describe("guest session client", () => {
         return Response.json(guestSession(), { status: 201 });
       }
       requests.push(init ?? {});
-      return Response.json({
-        schema_version: "1.0",
-        run: { run_id: "run_same-idempotent-result" },
-      });
+      return Response.json(runResponse());
     };
     const input = {
       source_text: "Alex will prepare the release notes.",
@@ -135,16 +210,74 @@ describe("guest session client", () => {
       reference_date: "2026-01-15",
     };
 
-    await createGuestRun(input, "create-run:fixed-key", fetcher, storage);
-    await createGuestRun(input, "create-run:fixed-key", fetcher, storage);
+    const first = await createGuestRun(input, "create-run:fixed-key", fetcher, storage);
+    const second = await createGuestRun(
+      input,
+      "create-run:fixed-key",
+      fetcher,
+      storage,
+    );
 
     expect(requests).toHaveLength(2);
+    expect(first.run_id).toBe("run_same-idempotent-result");
+    expect(second).toEqual(first);
+    expect(readActiveGuestRun(storage)).toEqual({
+      runId: first.run_id,
+      referenceDate: input.reference_date,
+    });
     for (const request of requests) {
       expect(new Headers(request.headers).get("idempotency-key")).toBe(
         "create-run:fixed-key",
       );
       expect(String(request.body)).not.toMatch(/image|base64|data:image/i);
     }
+  });
+
+  it("resumes and answers the current clarification with the stored guest", async () => {
+    const storage = new MemorySessionStorage();
+    storage.setItem("snapflow.guest-session.v1", JSON.stringify(guestSession()));
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const fetcher = async (input: string | URL | Request, init?: RequestInit) => {
+      const path = String(input);
+      requests.push({ path, body: JSON.parse(String(init?.body)) });
+      return Response.json(
+        path.endsWith("/resume")
+          ? runResponse("interrupted_for_clarification")
+          : runResponse("interrupted_for_approval"),
+      );
+    };
+
+    const resumed = await resumeGuestRun(
+      "run_same-idempotent-result",
+      fetcher,
+      storage,
+    );
+    const answered = await answerGuestRunClarification(
+      resumed.run_id,
+      "clarification-1",
+      "free_text",
+      "2026-01-22",
+      fetcher,
+      storage,
+    );
+
+    expect(resumed.status).toBe("interrupted_for_clarification");
+    expect(answered.status).toBe("interrupted_for_approval");
+    expect(requests).toEqual([
+      {
+        path: "/api/runs/run_same-idempotent-result/resume",
+        body: { schema_version: "1.0" },
+      },
+      {
+        path: "/api/runs/run_same-idempotent-result/clarifications",
+        body: {
+          schema_version: "1.0",
+          clarification_id: "clarification-1",
+          kind: "free_text",
+          answer: "2026-01-22",
+        },
+      },
+    ]);
   });
 
   it("returns safe errors for failed or malformed responses", async () => {
@@ -208,15 +341,46 @@ describe("same-origin guest-run proxies", () => {
           body: JSON.stringify({ source_text: "Reviewed text" }),
         }),
       );
+      await proxyResumeRun(
+        new Request("http://localhost/api/runs/run_proxy-test/resume", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer safe-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ schema_version: "1.0" }),
+        }),
+        { params: Promise.resolve({ runId: "run_proxy-test" }) },
+      );
+      await proxyAnswerClarification(
+        new Request("http://localhost/api/runs/run_proxy-test/clarifications", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer safe-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            schema_version: "1.0",
+            clarification_id: "clarification-1",
+            kind: "free_text",
+            answer: "2026-01-22",
+          }),
+        }),
+        { params: Promise.resolve({ runId: "run_proxy-test" }) },
+      );
 
       expect(observed.map(({ url }) => url)).toEqual([
         "http://api.internal:8123/api/guest-sessions",
         "http://api.internal:8123/api/guest-sessions/refresh",
         "http://api.internal:8123/api/runs",
+        "http://api.internal:8123/api/runs/run_proxy-test/resume",
+        "http://api.internal:8123/api/runs/run_proxy-test/clarifications",
       ]);
       expect(observed[1]!.headers.get("authorization")).toBe("Bearer safe-token");
       expect(observed[2]!.headers.get("idempotency-key")).toBe("create-run:proxy");
       expect(observed[2]!.body).toContain("Reviewed text");
+      expect(observed[3]!.headers.get("authorization")).toBe("Bearer safe-token");
+      expect(observed[4]!.body).toContain("clarification-1");
     } finally {
       globalThis.fetch = originalFetch;
       if (originalBase === undefined) delete process.env.API_BASE_URL;

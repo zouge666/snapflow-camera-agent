@@ -1,3 +1,7 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+
 import type { ActionPlanRequest, ActionPlanResponse } from "./action-plan-client";
 import { ActionReviewBoard } from "./action-review-board";
 import { EvidenceRangeView } from "./evidence-range";
@@ -6,12 +10,87 @@ import type { WorkflowState } from "./workflow-state";
 type ActionPlanPanelProps = Readonly<{
   state: WorkflowState;
   onRetry: () => void;
+  onAnswerClarification: (answer: string) => void;
 }>;
+
+function ClarificationForm({
+  state,
+  onAnswer,
+}: Readonly<{
+  state: Extract<WorkflowState, { status: "clarifying" }>;
+  onAnswer: (answer: string) => void;
+}>) {
+  const question = state.run.clarification_questions[0];
+  const [answer, setAnswer] = useState("");
+  if (question === undefined) return null;
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalized = answer.trim();
+    if (normalized) onAnswer(normalized);
+  };
+
+  return (
+    <section className="clarification-list" aria-labelledby="clarification-title">
+      <p className="section-kicker">
+        Clarification {state.run.clarification_count + 1} of 2
+      </p>
+      <h2 id="clarification-title">{question.question}</h2>
+      <p>{question.reason}</p>
+      <span>{question.field_path}</span>
+      {question.evidence ? <EvidenceRangeView range={question.evidence} /> : null}
+      <form className="clarification-form" onSubmit={submit}>
+        {question.answer_kind === "option" ? (
+          <fieldset>
+            <legend>Choose the value supported by your notes</legend>
+            {(question.options ?? []).map((option) => (
+              <label key={option}>
+                <input
+                  type="radio"
+                  name="clarification-answer"
+                  value={option}
+                  checked={answer === option}
+                  onChange={() => setAnswer(option)}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <label>
+            <span>Your answer</span>
+            <input
+              type="text"
+              value={answer}
+              maxLength={1000}
+              placeholder="For example, 2026-01-22"
+              onChange={(event) => setAnswer(event.currentTarget.value)}
+            />
+          </label>
+        )}
+        <p className="privacy-note">
+          This resumes the same saved run. It does not create another model request.
+        </p>
+        {state.message ? <p role="alert">{state.message}</p> : null}
+        <button
+          className="button button--accent"
+          type="submit"
+          disabled={state.isAnswering || !answer.trim()}
+        >
+          {state.isAnswering ? "Saving answer…" : "Resume this run"}
+        </button>
+      </form>
+    </section>
+  );
+}
 
 function ReadyPlan({
   plan,
   request,
-}: Readonly<{ plan: ActionPlanResponse; request: ActionPlanRequest }>) {
+}: Readonly<{
+  plan: ActionPlanResponse;
+  request: Pick<ActionPlanRequest, "reference_date">;
+}>) {
   return (
     <>
       <div className="plan-summary">
@@ -61,7 +140,11 @@ function ReadyPlan({
   );
 }
 
-export function ActionPlanPanel({ state, onRetry }: ActionPlanPanelProps) {
+export function ActionPlanPanel({
+  state,
+  onRetry,
+  onAnswerClarification,
+}: ActionPlanPanelProps) {
   if (state.status === "review") {
     return null;
   }
@@ -96,6 +179,14 @@ export function ActionPlanPanel({ state, onRetry }: ActionPlanPanelProps) {
             Retry demo request
           </button>
         </div>
+      ) : null}
+
+      {state.status === "clarifying" ? (
+        <ClarificationForm
+          key={state.run.clarification_questions[0]?.id}
+          state={state}
+          onAnswer={onAnswerClarification}
+        />
       ) : null}
 
       {state.status === "ready" ? (

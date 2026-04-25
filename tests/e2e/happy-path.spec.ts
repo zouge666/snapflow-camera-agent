@@ -37,22 +37,13 @@ test("sample review reaches a partial approved-only ICS download without a key",
   await page.getByRole("button", { name: "Confirm reviewed text" }).click();
   await expect(page.getByText("Text confirmed locally.")).toBeVisible();
 
-  const planRequestPromise = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" &&
-      new URL(request.url()).pathname === "/api/demo/action-plan",
-  );
   const runRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === "POST" && new URL(request.url()).pathname === "/api/runs",
   );
   await page.getByRole("button", { name: "Build demo action plan" }).click();
-  const [runRequest, planRequest] = await Promise.all([
-    runRequestPromise,
-    planRequestPromise,
-  ]);
+  const runRequest = await runRequestPromise;
   const runPayload = runRequest.postDataJSON() as Record<string, unknown>;
-  const planPayload = planRequest.postDataJSON() as Record<string, unknown>;
 
   expect(runPayload).toMatchObject({
     schema_version: "1.0",
@@ -61,28 +52,59 @@ test("sample review reaches a partial approved-only ICS download without a key",
     reference_date: "2026-01-15",
   });
   expect(runRequest.headers()["idempotency-key"]).toMatch(/^create-run:/);
-  expect(planPayload).toMatchObject({
-    locale: "en-US",
-    timezone: "Europe/Copenhagen",
-    reference_date: "2026-01-15",
-  });
-  expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
   expect(JSON.stringify(runPayload)).not.toMatch(/image|base64|data:image/i);
   await expect
     .poll(() =>
       page.evaluate(() => ({
-        sessionKeys: Object.keys(window.sessionStorage).filter((key) =>
-          key.startsWith("snapflow."),
-        ),
+        sessionKeys: Object.keys(window.sessionStorage)
+          .filter((key) => key.startsWith("snapflow."))
+          .sort(),
         persistentKeys: Object.keys(window.localStorage).filter((key) =>
           key.startsWith("snapflow."),
         ),
       })),
     )
     .toEqual({
-      sessionKeys: ["snapflow.guest-session.v1"],
+      sessionKeys: ["snapflow.active-run.v1", "snapflow.guest-session.v1"],
       persistentKeys: [],
     });
+
+  await expect(
+    page.getByRole("heading", {
+      name: "What date is the pilot review for the support FAQ deadline?",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator("blockquote").filter({ hasText: "before the pilot review" }),
+  ).toBeVisible();
+
+  const refreshResume = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith("/resume"),
+  );
+  await page.reload();
+  await refreshResume;
+  await expect(
+    page.getByRole("heading", {
+      name: "What date is the pilot review for the support FAQ deadline?",
+    }),
+  ).toBeVisible();
+
+  const clarificationRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith("/clarifications"),
+  );
+  await page.getByLabel("Your answer").fill("2026-01-22");
+  await page.getByRole("button", { name: "Resume this run" }).click();
+  const clarificationRequest = await clarificationRequestPromise;
+  expect(clarificationRequest.postDataJSON()).toEqual({
+    schema_version: "1.0",
+    clarification_id: "clarification-1",
+    kind: "free_text",
+    answer: "2026-01-22",
+  });
 
   await expect(
     page.getByRole("heading", { name: "Decide each candidate separately." }),
@@ -276,22 +298,24 @@ test("an uploaded image recovers from worker failure and sends only final text",
   await page.getByRole("button", { name: "Confirm reviewed text" }).click();
   await expect(page.getByText("Text confirmed locally.")).toBeVisible();
 
-  const planRequestPromise = page.waitForRequest(
+  const runRequestPromise = page.waitForRequest(
     (request) =>
-      request.method() === "POST" &&
-      new URL(request.url()).pathname === "/api/demo/action-plan",
+      request.method() === "POST" && new URL(request.url()).pathname === "/api/runs",
   );
   await page.getByRole("button", { name: "Build demo action plan" }).click();
-  const planRequest = await planRequestPromise;
-  const planPayload = planRequest.postDataJSON() as Record<string, unknown>;
+  const runRequest = await runRequestPromise;
+  const runPayload = runRequest.postDataJSON() as Record<string, unknown>;
 
-  expect(planPayload).toEqual({
+  expect(runPayload).toEqual({
+    schema_version: "1.0",
     source_text: finalText,
     locale: "en-US",
     timezone: "Europe/Copenhagen",
     reference_date: "2026-01-15",
   });
-  expect(JSON.stringify(planPayload)).not.toMatch(/image|base64|data:image/i);
+  expect(JSON.stringify(runPayload)).not.toMatch(/image|base64|data:image/i);
+  await page.getByLabel("Your answer").fill("2026-01-22");
+  await page.getByRole("button", { name: "Resume this run" }).click();
   await expect(
     page.getByRole("heading", { name: "Decide each candidate separately." }),
   ).toBeVisible();

@@ -1,6 +1,8 @@
 "use client";
 
-import { useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+
+import type { RunView } from "../../lib/api/generated/types.gen";
 
 import { DemoStepper } from "../../app/_components/demo-stepper";
 import {
@@ -17,15 +19,15 @@ import {
 } from "../ocr-review/review-source";
 import type { ReviewSample } from "../ocr-review/sample-review";
 import {
+  answerGuestRunClarification,
+  clearActiveGuestRun,
   createGuestRun,
   createIdempotencyKey,
   GuestSessionClientError,
+  readActiveGuestRun,
+  resumeGuestRun,
 } from "../session/guest-session-client";
-import {
-  ActionPlanClientError,
-  requestActionPlan,
-  type ActionPlanRequest,
-} from "./action-plan-client";
+import type { ActionPlanRequest, ActionPlanResponse } from "./action-plan-client";
 import { ActionPlanPanel } from "./action-plan-panel";
 import { initialWorkflowState, workflowReducer } from "./workflow-state";
 
@@ -43,6 +45,37 @@ function toActionPlanRequest(fields: ReviewTextFields): ActionPlanRequest {
   };
 }
 
+function planFromRun(run: RunView): ActionPlanResponse {
+  return {
+    schema_version: "1.0",
+    provider: "mock",
+    summary: `${run.candidate_items.length} reviewed candidate ${
+      run.candidate_items.length === 1 ? "action is" : "actions are"
+    } ready for approval.`,
+    candidate_actions: run.candidate_items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      owner: item.owner,
+      due:
+        item.due_text === null && item.due_date === null
+          ? null
+          : {
+              iso_date: item.due_date,
+              raw_text: item.due_text ?? item.due_date ?? "Unspecified date",
+              resolution:
+                item.due_date === null
+                  ? "ambiguous"
+                  : /^\d{4}-\d{2}-\d{2}$/.test(item.due_text ?? "")
+                    ? "absolute"
+                    : "relative",
+            },
+      priority: item.priority,
+      evidence: item.evidence,
+    })),
+    clarifications: [],
+  };
+}
+
 export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
   const [state, dispatch] = useReducer(workflowReducer, initialWorkflowState);
   const [selectedSampleId, setSelectedSampleId] = useState(samples[0].id);
@@ -55,6 +88,53 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
   const selectedSample =
     samples.find((sample) => sample.id === selectedSampleId) ?? samples[0];
 
+  const showRun = useCallback(
+    (run: RunView, referenceDate: string, request?: ActionPlanRequest) => {
+      if (run.status === "interrupted_for_clarification") {
+        dispatch({ type: "receive-clarification", run, referenceDate });
+        return;
+      }
+      if (run.status === "interrupted_for_approval") {
+        dispatch({
+          type: "receive-plan",
+          plan: planFromRun(run),
+          request: request ?? { reference_date: referenceDate },
+        });
+        return;
+      }
+      dispatch({
+        type: "fail-plan",
+        message: "The saved run is not at a reviewable workflow step.",
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const activeRun = readActiveGuestRun();
+    if (activeRun === null) return;
+    let cancelled = false;
+    dispatch({ type: "request-plan" });
+    void resumeGuestRun(activeRun.runId)
+      .then((run) => {
+        if (!cancelled) showRun(run, activeRun.referenceDate);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          dispatch({
+            type: "fail-plan",
+            message:
+              error instanceof GuestSessionClientError
+                ? error.message
+                : "The saved run could not be resumed.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showRun]);
+
   const runRequest = async (request: ActionPlanRequest) => {
     const version = requestVersion.current + 1;
     requestVersion.current = version;
@@ -64,17 +144,15 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
     dispatch({ type: "request-plan" });
 
     try {
-      await createGuestRun(request, idempotencyKey);
-      const plan = await requestActionPlan(request);
+      const run = await createGuestRun(request, idempotencyKey);
       if (requestVersion.current === version) {
-        dispatch({ type: "receive-plan", plan, request });
+        showRun(run, request.reference_date, request);
       }
     } catch (error) {
       if (requestVersion.current === version) {
         dispatch({
           type: "fail-plan",
           message:
-            error instanceof ActionPlanClientError ||
             error instanceof GuestSessionClientError
               ? error.message
               : "The demo service returned an unexpected error.",
@@ -87,7 +165,32 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
     requestVersion.current += 1;
     lastRequest.current = null;
     lastIdempotencyKey.current = null;
+    clearActiveGuestRun();
     dispatch({ type: "invalidate-plan" });
+  };
+
+  const answerClarification = async (answer: string) => {
+    if (state.status !== "clarifying") return;
+    const question = state.run.clarification_questions[0];
+    if (question === undefined) return;
+    dispatch({ type: "request-clarification-answer" });
+    try {
+      const run = await answerGuestRunClarification(
+        state.run.run_id,
+        question.id,
+        question.answer_kind,
+        answer,
+      );
+      showRun(run, state.referenceDate, lastRequest.current ?? undefined);
+    } catch (error) {
+      dispatch({
+        type: "fail-clarification-answer",
+        message:
+          error instanceof GuestSessionClientError
+            ? error.message
+            : "The clarification answer could not be saved.",
+      });
+    }
   };
 
   const selectSample = (sampleId: string) => {
@@ -145,6 +248,7 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
       />
       <ActionPlanPanel
         state={state}
+        onAnswerClarification={(answer) => void answerClarification(answer)}
         onRetry={() => {
           if (lastRequest.current) {
             void runRequest(lastRequest.current);

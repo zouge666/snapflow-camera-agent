@@ -195,8 +195,8 @@ class ClarificationQuestion(RunContractModel):
     @model_validator(mode="after")
     def option_questions_must_offer_choices(self) -> Self:
         """Do not publish an option question without any options."""
-        if self.answer_kind is ClarificationAnswerKind.OPTION and not self.options:
-            message = "option clarification must include at least one option"
+        if self.answer_kind is ClarificationAnswerKind.OPTION and len(self.options) < 2:
+            message = "option clarification must include at least two options"
             raise ValueError(message)
         if self.answer_kind is ClarificationAnswerKind.FREE_TEXT and self.options:
             message = "free-text clarification cannot include options"

@@ -224,6 +224,10 @@ export type CandidateDue = {
  * A focused question for one unresolved candidate field.
  */
 export type Clarification = {
+    /**
+     * Answer Kind
+     */
+    answer_kind?: 'option' | 'free_text';
     evidence: EvidenceRange | null;
     /**
      * Field Path
@@ -233,6 +237,10 @@ export type Clarification = {
      * Id
      */
     id: string;
+    /**
+     * Options
+     */
+    options?: Array<string>;
     /**
      * Question
      */

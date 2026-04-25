@@ -242,10 +242,15 @@ def test_clarification_shape_matches_answer_kind() -> None:
 
     assert option_question.options == ("Alex", "Mina")
 
-    with pytest.raises(ValidationError, match="at least one option"):
-        option_question.model_copy(update={"options": ()}).model_validate(
-            option_question.model_copy(update={"options": ()}).model_dump()
-        )
+    for insufficient_options in [(), ("Alex",)]:
+        with pytest.raises(ValidationError, match="at least two options"):
+            option_question.model_copy(
+                update={"options": insufficient_options}
+            ).model_validate(
+                option_question.model_copy(
+                    update={"options": insufficient_options}
+                ).model_dump()
+            )
 
     with pytest.raises(ValidationError, match="cannot include options"):
         ClarificationQuestion(

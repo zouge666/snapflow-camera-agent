@@ -52,6 +52,7 @@ from snapflow.workflow.graph import (
     create_action_extraction_workflow,
 )
 from snapflow.workflow.state import WorkflowLimits
+from test_action_plan_contract import sample_payload
 
 pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).parents[1]
@@ -458,6 +459,143 @@ def test_postgres_checkpoint_survives_restart_and_duplicate_resume(
         "checkpoints",
     }
     assert checkpoint_tables <= set(inspect(database.engine).get_table_names())
+
+
+def test_clarification_answer_resumes_after_refresh_without_creating_a_run(
+    database: DatabaseHarness,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    provider = CountingMockProvider()
+    settings = _durable_settings(database)
+    payload = {"schema_version": "1.0", **sample_payload()}
+
+    with TestClient(
+        create_app(settings, action_extraction_provider=provider)
+    ) as first_client:
+        session = first_client.post("/api/guest-sessions").json()
+        authorization = f"Bearer {session['access_token']}"
+        created_response = first_client.post(
+            "/api/runs",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "create-run:clarification-refresh",
+            },
+            json=payload,
+        )
+
+    assert created_response.status_code == 201
+    created = created_response.json()["run"]
+    assert created["status"] == "interrupted_for_clarification"
+    assert created["run_id"].startswith("run_")
+    assert created["clarification_count"] == 0
+    assert created["clarification_questions"] == [
+        {
+            "id": "clarification-1",
+            "field_path": "candidate_items[1].due_date",
+            "question": "What date is the pilot review for the support FAQ deadline?",
+            "reason": (
+                "The pilot review deadline cannot be resolved to an ISO date from "
+                "this text alone."
+            ),
+            "answer_kind": "free_text",
+            "options": [],
+            "evidence": {
+                "quote": "before the pilot review",
+                "start": 133,
+                "end": 156,
+            },
+        }
+    ]
+    assert provider.calls == 1
+
+    with TestClient(
+        create_app(settings, action_extraction_provider=provider)
+    ) as restarted_client:
+        refreshed = restarted_client.post(
+            f"/api/runs/{created['run_id']}/resume",
+            headers={"authorization": authorization},
+            json={"schema_version": "1.0"},
+        )
+        invalid = restarted_client.post(
+            f"/api/runs/{created['run_id']}/clarifications",
+            headers={"authorization": authorization},
+            json={
+                "schema_version": "1.0",
+                "clarification_id": "clarification-1",
+                "kind": "free_text",
+                "answer": "ANSWER-CANARY sometime later",
+            },
+        )
+        answered = restarted_client.post(
+            f"/api/runs/{created['run_id']}/clarifications",
+            headers={"authorization": authorization},
+            json={
+                "schema_version": "1.0",
+                "clarification_id": "clarification-1",
+                "kind": "free_text",
+                "answer": "ANSWER-CANARY 2026-01-22",
+            },
+        )
+        duplicate = restarted_client.post(
+            f"/api/runs/{created['run_id']}/clarifications",
+            headers={"authorization": authorization},
+            json={
+                "schema_version": "1.0",
+                "clarification_id": "clarification-1",
+                "kind": "free_text",
+                "answer": "2026-01-22",
+            },
+        )
+        stranger = restarted_client.post("/api/guest-sessions").json()
+        wrong_owner = restarted_client.post(
+            f"/api/runs/{created['run_id']}/clarifications",
+            headers={"authorization": f"Bearer {stranger['access_token']}"},
+            json={
+                "schema_version": "1.0",
+                "clarification_id": "clarification-1",
+                "kind": "free_text",
+                "answer": "2026-01-22",
+            },
+        )
+
+    assert refreshed.status_code == 200
+    assert refreshed.json()["run"] == created
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "invalid_request"
+    assert answered.status_code == 200
+    answered_run = answered.json()["run"]
+    assert answered_run["run_id"] == created["run_id"]
+    assert answered_run["status"] == "interrupted_for_approval"
+    assert answered_run["clarification_count"] == 1
+    assert answered_run["clarification_questions"] == []
+    assert answered_run["candidate_items"][1]["due_date"] == "2026-01-22"
+    assert duplicate.status_code == 409
+    assert wrong_owner.status_code == 404
+    assert provider.calls == 1
+    with database.sessions() as database_session:
+        run_count = database_session.scalar(select(func.count()).select_from(RunRecord))
+    assert run_count == 1
+    assert "ANSWER-CANARY" not in caplog.text
+    assert all(
+        set(event)
+        <= {
+            "sequence",
+            "node",
+            "outcome",
+            "occurred_at",
+            "duration_ms",
+            "provider",
+            "model_alias",
+            "prompt_version",
+            "schema_version",
+            "retry_count",
+            "input_tokens",
+            "output_tokens",
+            "tool_name",
+            "tool_succeeded",
+        }
+        for event in answered_run["safe_trace"]
+    )
 
 
 def test_resume_reports_a_missing_checkpoint_without_starting_work(

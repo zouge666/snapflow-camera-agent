@@ -14,8 +14,10 @@ from snapflow.domain.action_plan import (
     ActionPlanResponse,
     CandidateAction,
     CandidateDue,
+    Clarification,
     EvidenceRange,
 )
+from snapflow.domain.clarifications import ClarificationResolution
 from snapflow.providers.base import (
     ActionExtractionProvider,
     ProviderTimeoutError,
@@ -25,6 +27,8 @@ from snapflow.workflow.graph import (
     ActionExtractionWorkflow,
     WorkflowCheckpointError,
     WorkflowCheckpointNotFoundError,
+    WorkflowClarificationAnswerError,
+    WorkflowClarificationConflictError,
     create_action_extraction_workflow,
 )
 from snapflow.workflow.state import (
@@ -152,6 +156,7 @@ def test_compiled_topology_matches_the_reviewed_single_workflow() -> None:
         "normalize_dates",
         "ready_for_approval",
         "retry_provider",
+        "validate_clarifications",
         "validate_evidence",
         "validate_input",
         "validate_schema",
@@ -166,12 +171,14 @@ def test_compiled_topology_matches_the_reviewed_single_workflow() -> None:
         ("extract_actions", "validate_schema", True),
         ("fail", "__end__", False),
         ("needs_clarification", "wait_for_clarification", False),
-        ("normalize_dates", "clarification_limit", True),
         ("normalize_dates", "fail", True),
-        ("normalize_dates", "needs_clarification", True),
-        ("normalize_dates", "ready_for_approval", True),
+        ("normalize_dates", "validate_clarifications", True),
         ("ready_for_approval", "wait_for_approval", False),
         ("retry_provider", "extract_actions", False),
+        ("validate_clarifications", "clarification_limit", True),
+        ("validate_clarifications", "fail", True),
+        ("validate_clarifications", "needs_clarification", True),
+        ("validate_clarifications", "ready_for_approval", True),
         ("validate_evidence", "fail", True),
         ("validate_evidence", "normalize_dates", True),
         ("validate_input", "extract_actions", True),
@@ -200,6 +207,7 @@ def test_typed_success_is_schema_validated_before_publication() -> None:
         WorkflowNode.VALIDATE_SCHEMA,
         WorkflowNode.VALIDATE_EVIDENCE,
         WorkflowNode.NORMALIZE_DATES,
+        WorkflowNode.VALIDATE_CLARIFICATIONS,
         WorkflowNode.READY_FOR_APPROVAL,
     ]
 
@@ -223,7 +231,7 @@ def test_workflow_normalizes_an_evidence_backed_date_before_publication() -> Non
     assert due.iso_date is not None
     assert due.iso_date.isoformat() == "2026-01-16"
     assert due.raw_text == "by Friday"
-    assert result.safe_trace[-2].node is WorkflowNode.NORMALIZE_DATES
+    assert result.safe_trace[-3].node is WorkflowNode.NORMALIZE_DATES
 
 
 def test_invalid_evidence_cannot_reach_the_ui_boundary() -> None:
@@ -348,7 +356,7 @@ def test_checkpoint_pause_load_and_duplicate_load_do_not_rerun_nodes() -> None:
     ).next == (WorkflowNode.WAIT_FOR_APPROVAL.value,)
 
 
-def test_clarification_path_pauses_before_the_future_answer_node() -> None:
+def test_clarification_path_uses_a_typed_dynamic_interrupt() -> None:
     workflow = create_action_extraction_workflow(
         BuildActionPlan(MockProvider()),
         WorkflowLimits(),
@@ -358,9 +366,337 @@ def test_clarification_path_pauses_before_the_future_answer_node() -> None:
     started = workflow.start("run_clarification-checkpoint", sample_request())
 
     assert started.status is WorkflowStatus.NEEDS_CLARIFICATION
-    assert workflow.graph.get_state(
+    snapshot = workflow.graph.get_state(
         workflow._checkpoint_config("run_clarification-checkpoint")
-    ).next == (WorkflowNode.WAIT_FOR_CLARIFICATION.value,)
+    )
+    assert snapshot.next == (WorkflowNode.WAIT_FOR_CLARIFICATION.value,)
+    assert len(snapshot.interrupts) == 1
+    assert snapshot.interrupts[0].value == {
+        "id": "clarification-1",
+        "field_path": "candidate_actions[1].due",
+        "question": "What date is the pilot review for the support FAQ deadline?",
+        "reason": (
+            "The pilot review deadline cannot be resolved to an ISO date from this "
+            "text alone."
+        ),
+        "answer_kind": "free_text",
+        "options": [],
+        "evidence": {
+            "quote": "before the pilot review",
+            "start": 133,
+            "end": 156,
+        },
+    }
+
+
+def test_free_text_answer_resumes_same_checkpoint_without_provider_rerun() -> None:
+    provider = RecordingProvider(MockProvider().extract_actions(sample_request()))
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_free-text-answer"
+    started = workflow.start(run_id, sample_request())
+
+    answered = workflow.answer_clarification(
+        run_id,
+        ClarificationResolution(
+            clarification_id="clarification-1",
+            kind="free_text",
+            answer="The pilot review is on 2026-01-22.",
+        ),
+    )
+
+    assert started.status is WorkflowStatus.NEEDS_CLARIFICATION
+    assert answered.status is WorkflowStatus.READY_FOR_APPROVAL
+    assert answered.clarification_count == 1
+    assert answered.plan.clarifications == ()
+    answered_due = answered.plan.candidate_actions[1].due
+    assert answered_due is not None
+    assert answered_due.iso_date is not None
+    assert answered_due.iso_date.isoformat() == "2026-01-22"
+    assert answered_due.raw_text == "before the pilot review"
+    assert provider.calls == 1
+    serialized_trace = json.dumps(
+        [event.model_dump(mode="json") for event in answered.safe_trace]
+    )
+    assert "The pilot review is on" not in serialized_trace
+    assert answered.safe_trace[-2].node is WorkflowNode.WAIT_FOR_CLARIFICATION
+    assert answered.safe_trace[-2].status is WorkflowStatus.CLARIFICATION_RECEIVED
+
+
+def test_invalid_stale_and_duplicate_answers_do_not_consume_an_interrupt() -> None:
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(MockProvider()),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_answer-guards"
+    workflow.start(run_id, sample_request())
+
+    with pytest.raises(WorkflowClarificationConflictError):
+        workflow.answer_clarification(
+            run_id,
+            ClarificationResolution(
+                clarification_id="clarification-99",
+                kind="free_text",
+                answer="2026-01-22",
+            ),
+        )
+    with pytest.raises(WorkflowClarificationAnswerError):
+        workflow.answer_clarification(
+            run_id,
+            ClarificationResolution(
+                clarification_id="clarification-1",
+                kind="free_text",
+                answer="sometime after the review",
+            ),
+        )
+    assert workflow.load(run_id).clarification_count == 0
+
+    workflow.answer_clarification(
+        run_id,
+        ClarificationResolution(
+            clarification_id="clarification-1",
+            kind="free_text",
+            answer="2026-01-22",
+        ),
+    )
+    with pytest.raises(WorkflowClarificationConflictError):
+        workflow.answer_clarification(
+            run_id,
+            ClarificationResolution(
+                clarification_id="clarification-1",
+                kind="free_text",
+                answer="2026-01-22",
+            ),
+        )
+
+
+def test_option_answer_resolves_an_evidence_backed_ambiguous_owner() -> None:
+    source_text = "Alex or Mina: ship the release."
+    request = sample_request().model_copy(update={"source_text": source_text})
+    plan = single_action_plan(source_text).model_copy(
+        update={
+            "candidate_actions": (
+                single_action_plan(source_text)
+                .candidate_actions[0]
+                .model_copy(update={"owner": None}),
+            ),
+            "clarifications": (
+                Clarification(
+                    id="clarification-1",
+                    field_path="candidate_actions[0].owner",
+                    question="Who owns the ship the release action?",
+                    reason="The reviewed text names two possible owners.",
+                    answer_kind="option",
+                    options=("Alex", "Mina"),
+                    evidence=EvidenceRange(
+                        quote="Alex or Mina",
+                        start=0,
+                        end=12,
+                    ),
+                ),
+            ),
+        }
+    )
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(plan)),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_owner-option"
+    workflow.start(run_id, request)
+
+    answered = workflow.answer_clarification(
+        run_id,
+        ClarificationResolution(
+            clarification_id="clarification-1",
+            kind="option",
+            answer="Mina",
+        ),
+    )
+
+    assert answered.plan.candidate_actions[0].owner == "Mina"
+    assert answered.status is WorkflowStatus.READY_FOR_APPROVAL
+
+
+def test_optional_owner_absence_does_not_create_a_question() -> None:
+    source_text = "Prepare the release notes."
+    request = sample_request().model_copy(update={"source_text": source_text})
+    action = (
+        single_action_plan(source_text)
+        .candidate_actions[0]
+        .model_copy(update={"owner": None})
+    )
+    provider = RecordingProvider(
+        single_action_plan(source_text).model_copy(
+            update={"candidate_actions": (action,)}
+        )
+    )
+
+    result = workflow_for(provider).run(request)
+
+    assert result.status is WorkflowStatus.READY_FOR_APPROVAL
+    assert result.plan.candidate_actions[0].owner is None
+    assert result.plan.clarifications == ()
+
+
+def test_required_question_evidence_cannot_be_missing() -> None:
+    source_text = "Alex or Mina should prepare the release notes."
+    request = sample_request().model_copy(update={"source_text": source_text})
+    base = single_action_plan(source_text)
+    plan = base.model_copy(
+        update={
+            "candidate_actions": (
+                base.candidate_actions[0].model_copy(update={"owner": None}),
+            ),
+            "clarifications": (
+                Clarification(
+                    id="clarification-1",
+                    field_path="candidate_actions[0].owner",
+                    question="Who owns the release notes action?",
+                    reason="The reviewed text names two possible owners.",
+                    answer_kind="option",
+                    options=("Alex", "Mina"),
+                    evidence=None,
+                ),
+            ),
+        }
+    )
+
+    with pytest.raises(ActionExtractionWorkflowError) as raised:
+        workflow_for(RecordingProvider(plan)).run(request)
+
+    assert raised.value.code is WorkflowFailureCode.INVALID_CLARIFICATION
+
+
+def test_free_text_answer_can_resolve_an_ambiguous_action_referent() -> None:
+    source_text = "Update it before launch."
+    request = sample_request().model_copy(update={"source_text": source_text})
+    base = single_action_plan(source_text)
+    plan = base.model_copy(
+        update={
+            "candidate_actions": (
+                base.candidate_actions[0].model_copy(
+                    update={"title": "Update the unresolved launch item"}
+                ),
+            ),
+            "clarifications": (
+                Clarification(
+                    id="clarification-1",
+                    field_path="candidate_actions[0].title",
+                    question="What does 'it' refer to in this launch action?",
+                    reason="The action referent is ambiguous in the reviewed text.",
+                    evidence=EvidenceRange(
+                        quote=source_text,
+                        start=0,
+                        end=len(source_text),
+                    ),
+                ),
+            ),
+        }
+    )
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(plan)),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_referent-answer"
+    workflow.start(run_id, request)
+
+    answered = workflow.answer_clarification(
+        run_id,
+        ClarificationResolution(
+            clarification_id="clarification-1",
+            kind="free_text",
+            answer="Update the launch checklist",
+        ),
+    )
+
+    assert answered.plan.candidate_actions[0].title == "Update the launch checklist"
+
+
+def test_two_answer_rounds_fail_closed_when_a_third_question_remains() -> None:
+    source_text = "Alex or Mina should update it after the pilot review."
+    request = sample_request().model_copy(update={"source_text": source_text})
+    evidence = EvidenceRange(quote=source_text, start=0, end=len(source_text))
+    plan = ActionPlanResponse(
+        schema_version="1.0",
+        provider="mock",
+        summary="One action has three explicit ambiguities.",
+        candidate_actions=(
+            CandidateAction(
+                id="action-1",
+                title="Update the unresolved item",
+                owner=None,
+                due=CandidateDue(
+                    iso_date=None,
+                    raw_text="after the pilot review",
+                    resolution="ambiguous",
+                ),
+                priority="unknown",
+                evidence=(evidence,),
+            ),
+        ),
+        clarifications=(
+            Clarification(
+                id="clarification-1",
+                field_path="candidate_actions[0].title",
+                question="What does 'it' refer to in this action?",
+                reason="The action referent is ambiguous.",
+                evidence=evidence,
+            ),
+            Clarification(
+                id="clarification-2",
+                field_path="candidate_actions[0].owner",
+                question="Who owns the update action?",
+                reason="The reviewed text names two possible owners.",
+                answer_kind="option",
+                options=("Alex", "Mina"),
+                evidence=evidence,
+            ),
+            Clarification(
+                id="clarification-3",
+                field_path="candidate_actions[0].due",
+                question="What date is the pilot review?",
+                reason="The reviewed text does not give the review date.",
+                evidence=evidence,
+            ),
+        ),
+    )
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(plan)),
+        WorkflowLimits(max_clarifications=2),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_two-round-limit"
+    workflow.start(run_id, request)
+    second_round = workflow.answer_clarification(
+        run_id,
+        ClarificationResolution(
+            clarification_id="clarification-1",
+            kind="free_text",
+            answer="Update the launch checklist",
+        ),
+    )
+
+    assert second_round.status is WorkflowStatus.NEEDS_CLARIFICATION
+    assert second_round.clarification_count == 1
+    assert second_round.plan.clarifications[0].id == "clarification-2"
+    with pytest.raises(ActionExtractionWorkflowError) as raised:
+        workflow.answer_clarification(
+            run_id,
+            ClarificationResolution(
+                clarification_id="clarification-2",
+                kind="option",
+                answer="Alex",
+            ),
+        )
+
+    assert raised.value.code is WorkflowFailureCode.CLARIFICATION_LIMIT
+    assert raised.value.retry_count == 0
 
 
 def test_missing_checkpoint_fails_without_starting_the_provider() -> None:

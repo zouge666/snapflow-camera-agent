@@ -8,6 +8,7 @@ from typing import Annotated, Self, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
+from snapflow.domain.clarifications import ClarificationValidationError
 from snapflow.domain.dates import DateValidationError
 from snapflow.domain.evidence import EvidenceValidationError
 from snapflow.providers.base import (
@@ -29,6 +30,7 @@ class WorkflowNode(StrEnum):
     VALIDATE_SCHEMA = "validate_schema"
     VALIDATE_EVIDENCE = "validate_evidence"
     NORMALIZE_DATES = "normalize_dates"
+    VALIDATE_CLARIFICATIONS = "validate_clarifications"
     NEEDS_CLARIFICATION = "needs_clarification"
     READY_FOR_APPROVAL = "ready_for_approval"
     WAIT_FOR_CLARIFICATION = "wait_for_clarification"
@@ -48,7 +50,9 @@ class WorkflowStatus(StrEnum):
     SCHEMA_VALIDATED = "schema_validated"
     EVIDENCE_CHECKED = "evidence_checked"
     DATES_NORMALIZED = "dates_normalized"
+    CLARIFICATIONS_VALIDATED = "clarifications_validated"
     NEEDS_CLARIFICATION = "needs_clarification"
+    CLARIFICATION_RECEIVED = "clarification_received"
     READY_FOR_APPROVAL = "ready_for_approval"
     FATAL_FAILURE = "fatal_failure"
 
@@ -70,6 +74,7 @@ class WorkflowFailureCode(StrEnum):
     PROVIDER_INVALID_OUTPUT = "provider_invalid_output"
     INVALID_EVIDENCE = "invalid_evidence"
     INVALID_DATE = "invalid_date"
+    INVALID_CLARIFICATION = "invalid_clarification"
     CLARIFICATION_LIMIT = "clarification_limit"
 
 
@@ -124,6 +129,17 @@ class WorkflowFailure(BaseModel):
     def from_date_error(cls, error: DateValidationError) -> Self:
         return cls(
             code=WorkflowFailureCode.INVALID_DATE,
+            safe_message=str(error),
+            retryable=False,
+        )
+
+    @classmethod
+    def from_clarification_error(
+        cls,
+        error: ClarificationValidationError,
+    ) -> Self:
+        return cls(
+            code=WorkflowFailureCode.INVALID_CLARIFICATION,
             safe_message=str(error),
             retryable=False,
         )
@@ -229,7 +245,9 @@ class ActionExtractionStateSnapshot(BaseModel):
             WorkflowStatus.SCHEMA_VALIDATED,
             WorkflowStatus.EVIDENCE_CHECKED,
             WorkflowStatus.DATES_NORMALIZED,
+            WorkflowStatus.CLARIFICATIONS_VALIDATED,
             WorkflowStatus.NEEDS_CLARIFICATION,
+            WorkflowStatus.CLARIFICATION_RECEIVED,
             WorkflowStatus.READY_FOR_APPROVAL,
         }
         failure_statuses = {
