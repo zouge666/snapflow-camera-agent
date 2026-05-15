@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { POST as proxyCreateSession } from "../app/api/guest-sessions/route";
 import { POST as proxyRefreshSession } from "../app/api/guest-sessions/refresh/route";
 import { POST as proxyCreateRun } from "../app/api/runs/route";
+import { POST as proxySubmitApproval } from "../app/api/runs/[runId]/approval/route";
 import { POST as proxyAnswerClarification } from "../app/api/runs/[runId]/clarifications/route";
 import { POST as proxyResumeRun } from "../app/api/runs/[runId]/resume/route";
 import {
@@ -13,6 +14,7 @@ import {
   parseRunResponse,
   readActiveGuestRun,
   resumeGuestRun,
+  submitGuestRunApproval,
 } from "../features/session/guest-session-client";
 
 class MemorySessionStorage implements Storage {
@@ -62,7 +64,8 @@ function guestSession(
 function runResponse(
   status:
     | "interrupted_for_clarification"
-    | "interrupted_for_approval" = "interrupted_for_approval",
+    | "interrupted_for_approval"
+    | "approval_received" = "interrupted_for_approval",
 ) {
   return {
     schema_version: "1.0",
@@ -96,6 +99,28 @@ function runResponse(
             ]
           : [],
       clarification_count: status === "interrupted_for_approval" ? 1 : 0,
+      approval_decisions:
+        status === "approval_received"
+          ? [
+              {
+                action_id: "action-1",
+                decision: "approve",
+                reviewed: {
+                  title: "Prepare the final release notes",
+                  owner: "Alex",
+                  due_date: "2026-01-23",
+                  priority: "high",
+                },
+                audit_diff: [
+                  {
+                    field: "title",
+                    before: "Prepare the release notes",
+                    after: "Prepare the final release notes",
+                  },
+                ],
+              },
+            ]
+          : [],
       safe_trace: [
         {
           sequence: 0,
@@ -280,6 +305,57 @@ describe("guest session client", () => {
     ]);
   });
 
+  it("submits a complete approval with a retry key and parses server audit", async () => {
+    const storage = new MemorySessionStorage();
+    storage.setItem("snapflow.guest-session.v1", JSON.stringify(guestSession()));
+    let observed: { path: string; headers: Headers; body: unknown } | undefined;
+    const run = await submitGuestRunApproval(
+      "run_same-idempotent-result",
+      [
+        {
+          action_id: "action-1",
+          decision: "approve",
+          reviewed: {
+            title: "Prepare the final release notes",
+            owner: "Alex",
+            due_date: "2026-01-23",
+            priority: "high",
+          },
+        },
+      ],
+      "approve-run:browser-test",
+      async (input, init) => {
+        observed = {
+          path: String(input),
+          headers: new Headers(init?.headers),
+          body: JSON.parse(String(init?.body)),
+        };
+        return Response.json(runResponse("approval_received"));
+      },
+      storage,
+    );
+
+    expect(observed?.path).toBe("/api/runs/run_same-idempotent-result/approval");
+    expect(observed?.headers.get("idempotency-key")).toBe("approve-run:browser-test");
+    expect(observed?.body).toEqual({
+      schema_version: "1.0",
+      decisions: [
+        {
+          action_id: "action-1",
+          decision: "approve",
+          reviewed: {
+            title: "Prepare the final release notes",
+            owner: "Alex",
+            due_date: "2026-01-23",
+            priority: "high",
+          },
+        },
+      ],
+    });
+    expect(run.status).toBe("approval_received");
+    expect(run.approval_decisions[0]?.audit_diff[0]?.field).toBe("title");
+  });
+
   it("returns safe errors for failed or malformed responses", async () => {
     await expect(
       ensureGuestSession(
@@ -368,6 +444,18 @@ describe("same-origin guest-run proxies", () => {
         }),
         { params: Promise.resolve({ runId: "run_proxy-test" }) },
       );
+      await proxySubmitApproval(
+        new Request("http://localhost/api/runs/run_proxy-test/approval", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer safe-token",
+            "content-type": "application/json",
+            "idempotency-key": "approve-run:proxy",
+          },
+          body: JSON.stringify({ schema_version: "1.0", decisions: [] }),
+        }),
+        { params: Promise.resolve({ runId: "run_proxy-test" }) },
+      );
 
       expect(observed.map(({ url }) => url)).toEqual([
         "http://api.internal:8123/api/guest-sessions",
@@ -375,12 +463,14 @@ describe("same-origin guest-run proxies", () => {
         "http://api.internal:8123/api/runs",
         "http://api.internal:8123/api/runs/run_proxy-test/resume",
         "http://api.internal:8123/api/runs/run_proxy-test/clarifications",
+        "http://api.internal:8123/api/runs/run_proxy-test/approval",
       ]);
       expect(observed[1]!.headers.get("authorization")).toBe("Bearer safe-token");
       expect(observed[2]!.headers.get("idempotency-key")).toBe("create-run:proxy");
       expect(observed[2]!.body).toContain("Reviewed text");
       expect(observed[3]!.headers.get("authorization")).toBe("Bearer safe-token");
       expect(observed[4]!.body).toContain("clarification-1");
+      expect(observed[5]!.headers.get("idempotency-key")).toBe("approve-run:proxy");
     } finally {
       globalThis.fetch = originalFetch;
       if (originalBase === undefined) delete process.env.API_BASE_URL;

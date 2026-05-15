@@ -11,6 +11,7 @@ from snapflow.domain.run_contract import (
     ActionItem,
     ActionPriority,
     ApprovalDecisionInput,
+    ApprovalDecisionView,
     ApprovalRequest,
     ClarificationAnswerKind,
     ClarificationAnswerRequest,
@@ -25,6 +26,7 @@ from snapflow.domain.run_contract import (
     PublicError,
     PublicErrorCode,
     ResumeRunRequest,
+    ReviewedActionFields,
     RunResponse,
     RunStatus,
     RunView,
@@ -85,6 +87,7 @@ def run_view() -> RunView:
         status=RunStatus.INTERRUPTED_FOR_APPROVAL,
         candidate_items=(action_item(),),
         clarification_questions=(),
+        approval_decisions=(),
         clarification_count=0,
         safe_trace=(trace_event(),),
         created_at=created_at,
@@ -339,6 +342,51 @@ def test_approval_and_export_reject_duplicate_or_unsafe_actions() -> None:
             formats=(ExportFormat.MARKDOWN,),
             approved_action_ids=("action-1", "action-1"),
         )
+
+
+def test_run_snapshot_binds_server_decisions_to_candidate_ids() -> None:
+    view = run_view()
+    approved = ApprovalDecisionView(
+        action_id="action-1",
+        decision=ActionDecision.APPROVE,
+        reviewed=ReviewedActionFields(
+            title="Prepare the final release notes",
+            owner="Alex",
+            due_date=date(2026, 1, 29),
+            priority=ActionPriority.HIGH,
+        ),
+        audit_diff=(),
+    )
+
+    accepted = RunView.model_validate(
+        {
+            **view.model_dump(),
+            "status": "approval_received",
+            "approval_decisions": [approved.model_dump()],
+        }
+    )
+    assert accepted.approval_decisions == (approved,)
+
+    with pytest.raises(ValidationError, match="only available"):
+        RunView.model_validate(
+            {**view.model_dump(), "approval_decisions": [approved.model_dump()]}
+        )
+    with pytest.raises(ValidationError, match="exactly match"):
+        RunView.model_validate({**view.model_dump(), "status": "approval_received"})
+
+
+@pytest.mark.parametrize("field", ["title", "owner"])
+def test_reviewed_text_rejects_whitespace_only_edits(field: str) -> None:
+    payload = {
+        "title": "Prepare notes",
+        "owner": "Alex",
+        "due_date": None,
+        "priority": "unknown",
+        field: "   ",
+    }
+
+    with pytest.raises(ValidationError, match="non-whitespace"):
+        ReviewedActionFields.model_validate(payload)
 
 
 def test_run_snapshot_requires_aware_ordered_timestamps() -> None:

@@ -8,6 +8,7 @@ from typing import Annotated, Self, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
+from snapflow.domain.approvals import ApprovalResult
 from snapflow.domain.clarifications import ClarificationValidationError
 from snapflow.domain.dates import DateValidationError
 from snapflow.domain.evidence import EvidenceValidationError
@@ -54,6 +55,7 @@ class WorkflowStatus(StrEnum):
     NEEDS_CLARIFICATION = "needs_clarification"
     CLARIFICATION_RECEIVED = "clarification_received"
     READY_FOR_APPROVAL = "ready_for_approval"
+    APPROVAL_RECEIVED = "approval_received"
     FATAL_FAILURE = "fatal_failure"
 
 
@@ -207,6 +209,7 @@ class ActionExtractionState(TypedDict):
     request: ActionPlanRequest
     status: WorkflowStatus
     candidate_plan: ActionPlanResponse | None
+    approval_result: ApprovalResult | None
     failure: WorkflowFailure | None
     retry_count: int
     clarification_count: int
@@ -219,6 +222,7 @@ class ActionExtractionStateUpdate(TypedDict, total=False):
     request: ActionPlanRequest
     status: WorkflowStatus
     candidate_plan: ActionPlanResponse | None
+    approval_result: ApprovalResult | None
     failure: WorkflowFailure | None
     retry_count: int
     clarification_count: int
@@ -233,6 +237,7 @@ class ActionExtractionStateSnapshot(BaseModel):
     request: ActionPlanRequest
     status: WorkflowStatus
     candidate_plan: ActionPlanResponse | None
+    approval_result: ApprovalResult | None
     failure: WorkflowFailure | None
     retry_count: int = Field(ge=0, le=MAX_PROVIDER_RETRIES)
     clarification_count: int = Field(ge=0, le=MAX_CLARIFICATION_ROUNDS)
@@ -249,6 +254,7 @@ class ActionExtractionStateSnapshot(BaseModel):
             WorkflowStatus.NEEDS_CLARIFICATION,
             WorkflowStatus.CLARIFICATION_RECEIVED,
             WorkflowStatus.READY_FOR_APPROVAL,
+            WorkflowStatus.APPROVAL_RECEIVED,
         }
         failure_statuses = {
             WorkflowStatus.RETRYABLE_FAILURE,
@@ -263,6 +269,18 @@ class ActionExtractionStateSnapshot(BaseModel):
         if self.status not in failure_statuses and self.failure is not None:
             message = "failure is not allowed for this workflow status"
             raise ValueError(message)
+        if (
+            self.status is WorkflowStatus.APPROVAL_RECEIVED
+            and self.approval_result is None
+        ):
+            message = "approval result is required after approval is received"
+            raise ValueError(message)
+        if (
+            self.status is not WorkflowStatus.APPROVAL_RECEIVED
+            and self.approval_result is not None
+        ):
+            message = "approval result is only allowed after approval is received"
+            raise ValueError(message)
         return self
 
 
@@ -273,6 +291,7 @@ class ActionExtractionRun(BaseModel):
 
     status: WorkflowStatus
     plan: ActionPlanResponse
+    approval_result: ApprovalResult | None = None
     retry_count: int = Field(ge=0, le=MAX_PROVIDER_RETRIES)
     clarification_count: int = Field(ge=0, le=MAX_CLARIFICATION_ROUNDS)
     safe_trace: tuple[SafeWorkflowEvent, ...]
@@ -282,6 +301,7 @@ class ActionExtractionRun(BaseModel):
         if self.status not in {
             WorkflowStatus.NEEDS_CLARIFICATION,
             WorkflowStatus.READY_FOR_APPROVAL,
+            WorkflowStatus.APPROVAL_RECEIVED,
         }:
             message = "action extraction run must be in a successful terminal state"
             raise ValueError(message)
@@ -316,6 +336,7 @@ def initial_action_extraction_state(
         request=request,
         status=WorkflowStatus.RECEIVED,
         candidate_plan=None,
+        approval_result=None,
         failure=None,
         retry_count=0,
         clarification_count=0,

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-test("sample review reaches a partial approved-only ICS download without a key", async ({
+test("sample review reaches a durable partial server approval without a key", async ({
   page,
 }) => {
   const unexpectedOrigins = new Set<string>();
@@ -112,10 +112,10 @@ test("sample review reaches a partial approved-only ICS download without a key",
   const reviews = page.getByRole("list", { name: "Candidate action reviews" });
   await expect(reviews.getByRole("listitem")).toHaveCount(3);
 
-  const downloadButton = page.getByRole("button", {
-    name: "Download approved .ics",
+  const submitButton = page.getByRole("button", {
+    name: "Submit decisions to server",
   });
-  await expect(downloadButton).toBeDisabled();
+  await expect(submitButton).toBeDisabled();
 
   const checklist = reviews
     .getByRole("listitem")
@@ -123,50 +123,58 @@ test("sample review reaches a partial approved-only ICS download without a key",
   const supportFaq = reviews
     .getByRole("listitem")
     .filter({ hasText: "Prepare the support FAQ" });
+  const pilotReview = reviews
+    .getByRole("listitem")
+    .filter({ hasText: "Book a 30-minute pilot review" });
 
   await checklist.getByRole("button", { name: "Approve" }).click();
   await supportFaq.getByRole("button", { name: "Reject" }).click();
   await expect(page.getByText("1 approved", { exact: true })).toBeVisible();
   await expect(page.getByText("1 rejected", { exact: true })).toBeVisible();
   await expect(page.getByText("1 pending", { exact: true })).toBeVisible();
-  await expect(downloadButton).toBeEnabled();
+  await expect(submitButton).toBeDisabled();
+  await pilotReview.getByRole("button", { name: "Reject" }).click();
+  await expect(page.getByText("2 rejected", { exact: true })).toBeVisible();
+  await expect(page.getByText("0 pending", { exact: true })).toBeVisible();
+  await expect(submitButton).toBeEnabled();
 
-  const exportRequestPromise = page.waitForRequest(
+  const approvalRequestPromise = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
-      new URL(request.url()).pathname === "/api/demo/exports/ics",
+      new URL(request.url()).pathname.endsWith("/approval"),
   );
-  const downloadPromise = page.waitForEvent("download");
-  await downloadButton.click();
-  const [exportRequest, download] = await Promise.all([
-    exportRequestPromise,
-    downloadPromise,
-  ]);
-  const exportPayload = exportRequest.postDataJSON() as {
-    approved_items: readonly Record<string, unknown>[];
+  await submitButton.click();
+  const approvalRequest = await approvalRequestPromise;
+  const approvalPayload = approvalRequest.postDataJSON() as {
+    decisions: readonly Record<string, unknown>[];
   };
 
-  expect(exportPayload.approved_items).toHaveLength(1);
-  expect(exportPayload.approved_items[0]).toMatchObject({
-    id: "action-1",
-    decision: "approved",
-    due_date: "2026-01-16",
-  });
-  expect(JSON.stringify(exportPayload)).not.toMatch(/action-2|action-3/);
+  expect(approvalRequest.headers()["idempotency-key"]).toMatch(/^approve-run:/);
+  expect(approvalPayload.decisions).toEqual([
+    { action_id: "action-1", decision: "approve", reviewed: null },
+    { action_id: "action-2", decision: "reject", reviewed: null },
+    { action_id: "action-3", decision: "reject", reviewed: null },
+  ]);
+  expect(JSON.stringify(approvalPayload)).not.toMatch(/evidence|quote|source_text/i);
+  await expect(
+    page.getByRole("heading", { name: "Your decisions are saved." }),
+  ).toBeVisible();
+  await expect(page.getByText(/1 approved and 2 rejected/)).toBeVisible();
+  await expect(
+    page.getByText("Export has not started.", { exact: false }),
+  ).toBeVisible();
 
-  expect(download.suggestedFilename()).toBe("snapflow-approved-actions.ics");
-  const downloadPath = await download.path();
-  if (downloadPath === null) {
-    throw new Error("Playwright did not persist the downloaded calendar.");
-  }
-  const calendar = await readFile(downloadPath, "utf8");
-
-  expect(calendar).toContain("BEGIN:VCALENDAR\r\n");
-  expect(calendar.match(/BEGIN:VEVENT/g)).toHaveLength(1);
-  expect(calendar).toContain("SUMMARY:Send the revised onboarding checklist\r\n");
-  expect(calendar).toContain("DTSTART;VALUE=DATE:20260116\r\n");
-  expect(calendar).not.toMatch(/support FAQ|pilot review/i);
-  await expect(page.getByText("1 calendar event downloaded.")).toBeVisible();
+  const approvedRefresh = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith("/resume"),
+  );
+  await page.reload();
+  await approvedRefresh;
+  await expect(
+    page.getByRole("heading", { name: "Your decisions are saved." }),
+  ).toBeVisible();
+  await expect(page.getByText(/1 approved and 2 rejected/)).toBeVisible();
   expect([...unexpectedOrigins]).toEqual([]);
 });
 

@@ -367,9 +367,12 @@ def test_guest_http_boundary_rejects_missing_tampered_and_expired_credentials(
         )
         session = client.post("/api/guest-sessions").json()
         token = session["access_token"]
+        encoded_payload, encoded_signature = token.split(".")
+        replacement = "A" if encoded_signature[0] != "A" else "B"
+        tampered_token = f"{encoded_payload}.{replacement}{encoded_signature[1:]}"
         tampered = client.post(
             "/api/guest-sessions/refresh",
-            headers={"authorization": f"Bearer {token[:-1]}x"},
+            headers={"authorization": f"Bearer {tampered_token}"},
         )
         clock.now += timedelta(minutes=31)
         expired = client.post(
@@ -596,6 +599,220 @@ def test_clarification_answer_resumes_after_refresh_without_creating_a_run(
         }
         for event in answered_run["safe_trace"]
     )
+
+
+def test_server_approval_is_owned_audited_idempotent_and_survives_restart(
+    database: DatabaseHarness,
+) -> None:
+    provider = CountingMockProvider()
+    tool = FailIfCalledIcsTool()
+    settings = _durable_settings(database)
+    source_text = (
+        "Alex: Send the revised onboarding checklist by Friday.\n"
+        "Mina: Book a 30-minute pilot review on 2026-01-22."
+    )
+    payload = request(source_text).model_dump(mode="json")
+    approval_payload = {
+        "schema_version": "1.0",
+        "decisions": [
+            {
+                "action_id": "action-1",
+                "decision": "approve",
+                "reviewed": {
+                    "title": "Send the final onboarding checklist",
+                    "owner": "Alex",
+                    "due_date": "2026-01-17",
+                    "priority": "high",
+                },
+            },
+            {"action_id": "action-3", "decision": "reject", "reviewed": None},
+        ],
+    }
+
+    with TestClient(
+        create_app(
+            settings,
+            action_extraction_provider=provider,
+            ics_export_tool=tool,
+        )
+    ) as first_client:
+        session = first_client.post("/api/guest-sessions").json()
+        authorization = f"Bearer {session['access_token']}"
+        created_response = first_client.post(
+            "/api/runs",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "create-run:approval",
+            },
+            json=payload,
+        )
+        created = created_response.json()["run"]
+        invalid = first_client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "approve-run:invalid",
+            },
+            json={
+                "schema_version": "1.0",
+                "decisions": [
+                    {
+                        "action_id": "action-99",
+                        "decision": "approve",
+                        "reviewed": None,
+                    }
+                ],
+            },
+        )
+        still_waiting = first_client.post(
+            f"/api/runs/{created['run_id']}/resume",
+            headers={"authorization": authorization},
+            json={"schema_version": "1.0"},
+        )
+        approved = first_client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "approve-run:accepted",
+            },
+            json=approval_payload,
+        )
+        repeated = first_client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "approve-run:accepted",
+            },
+            json=approval_payload,
+        )
+        changed_retry = first_client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "approve-run:accepted",
+            },
+            json={
+                **approval_payload,
+                "decisions": [
+                    {"action_id": "action-1", "decision": "reject", "reviewed": None},
+                    {"action_id": "action-3", "decision": "reject", "reviewed": None},
+                ],
+            },
+        )
+        stranger = first_client.post("/api/guest-sessions").json()
+        wrong_owner = first_client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": f"Bearer {stranger['access_token']}",
+                "idempotency-key": "approve-run:accepted",
+            },
+            json=approval_payload,
+        )
+
+    assert created_response.status_code == 201
+    assert created["status"] == "interrupted_for_approval"
+    assert created["approval_decisions"] == []
+    assert invalid.status_code == 422
+    assert still_waiting.json()["run"]["status"] == "interrupted_for_approval"
+    assert approved.status_code == 200
+    approved_run = approved.json()["run"]
+    assert approved_run["status"] == "approval_received"
+    assert approved_run["approval_decisions"] == [
+        {
+            "action_id": "action-1",
+            "decision": "approve",
+            "reviewed": {
+                "title": "Send the final onboarding checklist",
+                "owner": "Alex",
+                "due_date": "2026-01-17",
+                "priority": "high",
+            },
+            "audit_diff": [
+                {
+                    "field": "title",
+                    "before": "Send the revised onboarding checklist",
+                    "after": "Send the final onboarding checklist",
+                },
+                {
+                    "field": "due_date",
+                    "before": "2026-01-16",
+                    "after": "2026-01-17",
+                },
+                {"field": "priority", "before": "unknown", "after": "high"},
+            ],
+        },
+        {
+            "action_id": "action-3",
+            "decision": "reject",
+            "reviewed": None,
+            "audit_diff": [],
+        },
+    ]
+    assert repeated.json() == approved.json()
+    assert changed_retry.status_code == 409
+    assert wrong_owner.status_code == 404
+    assert provider.calls == 1
+    assert tool.calls == 0
+
+    with TestClient(
+        create_app(
+            settings,
+            action_extraction_provider=provider,
+            ics_export_tool=tool,
+        )
+    ) as restarted_client:
+        resumed = restarted_client.post(
+            f"/api/runs/{created['run_id']}/resume",
+            headers={"authorization": authorization},
+            json={"schema_version": "1.0"},
+        )
+
+    assert resumed.json()["run"] == approved_run
+    assert provider.calls == 1
+    assert tool.calls == 0
+
+
+def test_expired_approval_interrupt_cannot_be_consumed(
+    database: DatabaseHarness,
+) -> None:
+    clock = Clock()
+    runs = repository(database, clock)
+    tokens = GuestTokenService(KEY, timedelta(hours=24), clock=clock)
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(CountingMockProvider()),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+        clock=clock,
+    )
+    service = GuestRunService(repository=runs, tokens=tokens, workflow=workflow)
+    app = create_app(
+        Settings(app_env="test", model_provider="mock"),
+        guest_run_service=service,
+    )
+
+    with TestClient(app) as client:
+        session = client.post("/api/guest-sessions").json()
+        authorization = f"Bearer {session['access_token']}"
+        created = client.post(
+            "/api/runs",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "create-run:expired-approval",
+            },
+            json=request().model_dump(mode="json"),
+        ).json()["run"]
+        clock.now += timedelta(hours=13)
+        expired = client.post(
+            f"/api/runs/{created['run_id']}/approval",
+            headers={
+                "authorization": authorization,
+                "idempotency-key": "approve-run:expired",
+            },
+            json={"schema_version": "1.0", "decisions": []},
+        )
+
+    assert expired.status_code == 404
+    assert expired.json()["error"]["code"] == "run_not_found"
 
 
 def test_resume_reports_a_missing_checkpoint_without_starting_work(

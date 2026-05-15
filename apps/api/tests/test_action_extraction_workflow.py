@@ -7,6 +7,7 @@ from typing import Any, NoReturn, cast
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import ValidationError
 
 from snapflow.application.build_plan import BuildActionPlan
 from snapflow.domain.action_plan import (
@@ -18,6 +19,7 @@ from snapflow.domain.action_plan import (
     EvidenceRange,
 )
 from snapflow.domain.clarifications import ClarificationResolution
+from snapflow.domain.run_contract import ApprovalRequest
 from snapflow.providers.base import (
     ActionExtractionProvider,
     ProviderTimeoutError,
@@ -25,6 +27,8 @@ from snapflow.providers.base import (
 from snapflow.providers.mock import MockProvider
 from snapflow.workflow.graph import (
     ActionExtractionWorkflow,
+    WorkflowApprovalConflictError,
+    WorkflowApprovalValidationError,
     WorkflowCheckpointError,
     WorkflowCheckpointNotFoundError,
     WorkflowClarificationAnswerError,
@@ -32,6 +36,7 @@ from snapflow.workflow.graph import (
     create_action_extraction_workflow,
 )
 from snapflow.workflow.state import (
+    ActionExtractionRun,
     ActionExtractionStateSnapshot,
     ActionExtractionWorkflowError,
     IllegalWorkflowTransitionError,
@@ -354,6 +359,155 @@ def test_checkpoint_pause_load_and_duplicate_load_do_not_rerun_nodes() -> None:
     assert workflow.graph.get_state(
         workflow._checkpoint_config("run_checkpoint-test")
     ).next == (WorkflowNode.WAIT_FOR_APPROVAL.value,)
+
+
+def test_approval_interrupt_returns_the_server_candidate_snapshot() -> None:
+    source_text = "Ship the release"
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(single_action_plan(source_text))),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    request = sample_request().model_copy(update={"source_text": source_text})
+    workflow.start("run_approval-snapshot", request)
+
+    snapshot = workflow.graph.get_state(
+        workflow._checkpoint_config("run_approval-snapshot")
+    )
+
+    assert snapshot.next == (WorkflowNode.WAIT_FOR_APPROVAL.value,)
+    assert snapshot.interrupts[0].value == {
+        "kind": "approval",
+        "candidate_actions": [
+            single_action_plan(source_text).candidate_actions[0].model_dump(mode="json")
+        ],
+    }
+
+
+def test_approval_command_is_idempotent_and_never_enters_exporting() -> None:
+    source_text = "Ship the release"
+    provider = RecordingProvider(single_action_plan(source_text))
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(provider),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_approval-command"
+    workflow.start(
+        run_id, sample_request().model_copy(update={"source_text": source_text})
+    )
+    request = ApprovalRequest.model_validate(
+        {
+            "schema_version": "1.0",
+            "decisions": [
+                {
+                    "action_id": "action-1",
+                    "decision": "approve",
+                    "reviewed": {
+                        "title": "Ship the final release",
+                        "owner": "Mina",
+                        "due_date": "2026-01-23",
+                        "priority": "high",
+                    },
+                }
+            ],
+        }
+    )
+
+    approved = workflow.submit_approval(
+        run_id,
+        "approve-run:workflow",
+        request,
+    )
+
+    assert approved.status is WorkflowStatus.APPROVAL_RECEIVED
+    assert approved.approval_result is not None
+    assert approved.approval_result.accepted_request == request
+    assert approved.approval_result.approved_items[0].title == "Ship the final release"
+    assert approved.approval_result.approved_items[0].evidence[0].quote == source_text
+    assert approved.safe_trace[-1].node is WorkflowNode.WAIT_FOR_APPROVAL
+    assert all(event.status.value != "exporting" for event in approved.safe_trace)
+    assert provider.calls == 1
+
+    with pytest.raises(WorkflowApprovalConflictError):
+        workflow.submit_approval(run_id, "approve-run:workflow", request)
+
+
+def test_invalid_approval_does_not_consume_the_current_interrupt() -> None:
+    source_text = "Ship the release"
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(single_action_plan(source_text))),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_invalid-approval"
+    workflow.start(
+        run_id, sample_request().model_copy(update={"source_text": source_text})
+    )
+    invalid = ApprovalRequest.model_validate(
+        {
+            "schema_version": "1.0",
+            "decisions": [
+                {
+                    "action_id": "action-99",
+                    "decision": "approve",
+                    "reviewed": None,
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(WorkflowApprovalValidationError):
+        workflow.submit_approval(run_id, "approve-run:invalid", invalid)
+
+    assert workflow.load(run_id).status is WorkflowStatus.READY_FOR_APPROVAL
+
+
+def test_approval_result_is_bound_to_only_the_received_state() -> None:
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(RecordingProvider(empty_plan())),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    run_id = "run_approval-state-invariant"
+    workflow.start(run_id, sample_request())
+    approved = workflow.submit_approval(
+        run_id,
+        "approve-run:state-invariant",
+        ApprovalRequest(schema_version="1.0", decisions=()),
+    )
+    assert approved.approval_result is not None
+
+    missing_result = initial_action_extraction_state(sample_request())
+    missing_result["status"] = WorkflowStatus.APPROVAL_RECEIVED
+    missing_result["candidate_plan"] = empty_plan()
+    with pytest.raises(ValidationError, match="approval result is required"):
+        ActionExtractionStateSnapshot.model_validate(missing_result)
+
+    premature_result = initial_action_extraction_state(sample_request())
+    premature_result["status"] = WorkflowStatus.READY_FOR_APPROVAL
+    premature_result["candidate_plan"] = empty_plan()
+    premature_result["approval_result"] = approved.approval_result
+    with pytest.raises(ValidationError, match="only allowed"):
+        ActionExtractionStateSnapshot.model_validate(premature_result)
+
+    with pytest.raises(ValidationError, match="successful terminal"):
+        ActionExtractionRun.model_validate(
+            {**approved.model_dump(), "status": "input_validated"}
+        )
+
+
+def test_approval_node_rejects_a_missing_candidate_plan() -> None:
+    workflow = create_action_extraction_workflow(
+        BuildActionPlan(MockProvider()),
+        WorkflowLimits(),
+        checkpointer=InMemorySaver(),
+    )
+    state = initial_action_extraction_state(sample_request())
+    state["status"] = WorkflowStatus.READY_FOR_APPROVAL
+
+    with pytest.raises(IllegalWorkflowTransitionError):
+        workflow.graph.nodes[WorkflowNode.WAIT_FOR_APPROVAL.value].invoke(state)
 
 
 def test_clarification_path_uses_a_typed_dynamic_interrupt() -> None:

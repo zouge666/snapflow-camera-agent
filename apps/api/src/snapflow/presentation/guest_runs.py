@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from snapflow.application.guest_runs import GuestRunService
 from snapflow.domain.run_contract import (
+    ApprovalRequest,
     ClarificationAnswerRequest,
     CreateRunRequest,
     ErrorEnvelope,
@@ -24,6 +25,8 @@ from snapflow.persistence.guest_runs import (
 )
 from snapflow.security.guest_tokens import InvalidGuestTokenError
 from snapflow.workflow.graph import (
+    WorkflowApprovalConflictError,
+    WorkflowApprovalValidationError,
     WorkflowCheckpointError,
     WorkflowCheckpointNotFoundError,
     WorkflowClarificationAnswerError,
@@ -300,6 +303,85 @@ def create_guest_run_router(service: GuestRunService) -> APIRouter:
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
                 PublicErrorCode.INTERNAL_ERROR,
                 "The clarification could not be checkpointed safely.",
+                retryable=True,
+            )
+        return RunResponse(schema_version="1.0", run=run)
+
+    @router.post(
+        "/api/runs/{run_id}/approval",
+        operation_id="submit_approval",
+        response_model=RunResponse,
+        responses=ERROR_RESPONSES,
+    )
+    def submit_approval(
+        run_id: Annotated[
+            str,
+            Path(
+                min_length=8,
+                max_length=100,
+                pattern=r"^run_[A-Za-z0-9_-]+$",
+            ),
+        ],
+        request: Annotated[ApprovalRequest, Body()],
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(bearer_scheme),
+        ],
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=8,
+                max_length=128,
+                pattern=r"^[A-Za-z0-9._:-]+$",
+            ),
+        ],
+    ) -> RunResponse | Response:
+        token = _bearer_token(credentials)
+        if isinstance(token, JSONResponse):
+            return token
+        try:
+            run = service.submit_approval(
+                token,
+                run_id,
+                idempotency_key,
+                request,
+            )
+        except (InvalidGuestTokenError, GuestSessionNotFoundError):
+            return _error(
+                status.HTTP_401_UNAUTHORIZED,
+                PublicErrorCode.UNAUTHORIZED,
+                "The guest session is invalid or expired.",
+            )
+        except RunNotFoundError:
+            return _error(
+                status.HTTP_404_NOT_FOUND,
+                PublicErrorCode.RUN_NOT_FOUND,
+                "The requested run was not found.",
+            )
+        except WorkflowApprovalConflictError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "This approval is stale, changed, or has already been submitted.",
+            )
+        except WorkflowApprovalValidationError:
+            return _error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                PublicErrorCode.INVALID_REQUEST,
+                "The decisions do not match the current approval snapshot.",
+            )
+        except WorkflowCheckpointNotFoundError:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                PublicErrorCode.RUN_CONFLICT,
+                "The run checkpoint is unavailable.",
+            )
+        except WorkflowCheckpointError:
+            return _error(
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                PublicErrorCode.INTERNAL_ERROR,
+                "The approval could not be checkpointed safely.",
                 retryable=True,
             )
         return RunResponse(schema_version="1.0", run=run)

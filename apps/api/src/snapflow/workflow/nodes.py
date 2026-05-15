@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from snapflow.application.build_plan import BuildActionPlan
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
+from snapflow.domain.approvals import ApprovalCommand, ApprovalResolver
 from snapflow.domain.clarifications import (
     ClarificationResolution,
     ClarificationResolver,
@@ -57,6 +58,7 @@ class ActionExtractionNodes:
     evidence_validator: EvidenceValidator
     date_normalizer: DateNormalizer
     clarification_resolver: ClarificationResolver
+    approval_resolver: ApprovalResolver
     interrupts_enabled: bool
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
@@ -552,13 +554,47 @@ class ActionExtractionNodes:
         self,
         state: ActionExtractionState,
     ) -> ActionExtractionStateUpdate:
-        """No-op target kept behind the durable approval breakpoint."""
+        """Pause with an editable snapshot, then resolve every decision."""
         self._require_status(
             state,
             WorkflowNode.WAIT_FOR_APPROVAL,
             WorkflowStatus.READY_FOR_APPROVAL,
         )
-        return {}
+        if not self.interrupts_enabled:
+            return {}
+        plan = state["candidate_plan"]
+        if plan is None:
+            raise IllegalWorkflowTransitionError(
+                WorkflowNode.WAIT_FOR_APPROVAL,
+                state["status"],
+            )
+        command = ApprovalCommand.model_validate(
+            interrupt(
+                {
+                    "kind": "approval",
+                    "candidate_actions": [
+                        candidate.model_dump(mode="json")
+                        for candidate in plan.candidate_actions
+                    ],
+                }
+            )
+        )
+        result = self.approval_resolver.resolve(
+            plan,
+            command.request,
+            command.idempotency_key,
+        )
+        return {
+            "status": WorkflowStatus.APPROVAL_RECEIVED,
+            "approval_result": result,
+            "safe_trace": self._trace(
+                WorkflowNode.WAIT_FOR_APPROVAL,
+                WorkflowEventOutcome.SUCCEEDED,
+                WorkflowStatus.APPROVAL_RECEIVED,
+                state["retry_count"],
+                provider=plan.provider,
+            ),
+        }
 
     def mark_clarification_limit(
         self,

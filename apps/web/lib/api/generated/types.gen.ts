@@ -104,6 +104,26 @@ export type ActionPlanResponse = {
 export type ActionPriority = 'low' | 'medium' | 'high' | 'unknown';
 
 /**
+ * ApprovalAuditChange
+ *
+ * One server-computed field change retained for human review.
+ */
+export type ApprovalAuditChange = {
+    /**
+     * After
+     */
+    after: string | null;
+    /**
+     * Before
+     */
+    before: string | null;
+    /**
+     * Field
+     */
+    field: 'title' | 'owner' | 'due_date' | 'priority';
+};
+
+/**
  * ApprovalDecisionInput
  *
  * One explicit approval or rejection, with optional reviewed fields.
@@ -113,6 +133,24 @@ export type ApprovalDecisionInput = {
      * Action Id
      */
     action_id: string;
+    decision: ActionDecision;
+    reviewed: ReviewedActionFields | null;
+};
+
+/**
+ * ApprovalDecisionView
+ *
+ * One accepted decision and its server-computed reviewed snapshot.
+ */
+export type ApprovalDecisionView = {
+    /**
+     * Action Id
+     */
+    action_id: string;
+    /**
+     * Audit Diff
+     */
+    audit_diff: Array<ApprovalAuditChange>;
     decision: ActionDecision;
     reviewed: ReviewedActionFields | null;
 };
@@ -131,42 +169,6 @@ export type ApprovalRequest = {
      * Schema Version
      */
     schema_version: '1.0';
-};
-
-/**
- * ApprovedActionItem
- *
- * A reviewed item that is explicitly allowed to cross the tool boundary.
- */
-export type ApprovedActionItem = {
-    /**
-     * Decision
-     */
-    decision: 'approved';
-    /**
-     * Due Date
-     */
-    due_date: string | null;
-    /**
-     * Evidence
-     */
-    evidence: Array<EvidenceRange>;
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Owner
-     */
-    owner: string | null;
-    /**
-     * Priority
-     */
-    priority: 'low' | 'medium' | 'high' | 'unknown';
-    /**
-     * Title
-     */
-    title: string;
 };
 
 /**
@@ -553,78 +555,6 @@ export type HttpValidationError = {
 };
 
 /**
- * IcsExportRequest
- *
- * Reference date and approved items accepted by the demo export endpoint.
- */
-export type IcsExportRequest = {
-    /**
-     * Approved Items
-     */
-    approved_items: Array<ApprovedActionItem>;
-    /**
-     * Reference Date
-     */
-    reference_date: string;
-    /**
-     * Schema Version
-     */
-    schema_version: '1.0';
-};
-
-/**
- * IcsExportResponse
- *
- * Download metadata and in-memory content returned over HTTP.
- */
-export type IcsExportResponse = {
-    /**
-     * Content
-     */
-    content: string;
-    /**
-     * Content Type
-     */
-    content_type: 'text/calendar; charset=utf-8';
-    /**
-     * Exported Action Ids
-     */
-    exported_action_ids: Array<string>;
-    /**
-     * Filename
-     */
-    filename: 'snapflow-approved-actions.ics';
-    /**
-     * Schema Version
-     */
-    schema_version: '1.0';
-    /**
-     * Warnings
-     */
-    warnings: Array<IcsExportWarning>;
-};
-
-/**
- * IcsExportWarning
- *
- * One deterministic reason an approved item was not exported.
- */
-export type IcsExportWarning = {
-    /**
-     * Action Id
-     */
-    action_id: string;
-    /**
-     * Code
-     */
-    code: 'missing_due_date';
-    /**
-     * Message
-     */
-    message: string;
-};
-
-/**
  * LiveHealth
  */
 export type LiveHealth = {
@@ -733,6 +663,10 @@ export type RunStatus = 'received' | 'input_validated' | 'extracting' | 'schema_
  * A privacy-aware snapshot returned when a run is created or resumed.
  */
 export type RunView = {
+    /**
+     * Approval Decisions
+     */
+    approval_decisions: Array<ApprovalDecisionView>;
     /**
      * Candidate Items
      */
@@ -875,31 +809,6 @@ export type CreateActionPlanApiDemoActionPlanPostResponses = {
 };
 
 export type CreateActionPlanApiDemoActionPlanPostResponse = CreateActionPlanApiDemoActionPlanPostResponses[keyof CreateActionPlanApiDemoActionPlanPostResponses];
-
-export type ExportIcsApiDemoExportsIcsPostData = {
-    body: IcsExportRequest;
-    path?: never;
-    query?: never;
-    url: '/api/demo/exports/ics';
-};
-
-export type ExportIcsApiDemoExportsIcsPostErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type ExportIcsApiDemoExportsIcsPostError = ExportIcsApiDemoExportsIcsPostErrors[keyof ExportIcsApiDemoExportsIcsPostErrors];
-
-export type ExportIcsApiDemoExportsIcsPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: IcsExportResponse;
-};
-
-export type ExportIcsApiDemoExportsIcsPostResponse = ExportIcsApiDemoExportsIcsPostResponses[keyof ExportIcsApiDemoExportsIcsPostResponses];
 
 export type CreateGuestSessionData = {
     body?: never;
@@ -1120,6 +1029,12 @@ export type DeleteRunResponse2 = DeleteRunResponses[keyof DeleteRunResponses];
 
 export type SubmitApprovalData = {
     body: ApprovalRequest;
+    headers: {
+        /**
+         * Idempotency-Key
+         */
+        'Idempotency-Key': string;
+    };
     path: {
         /**
          * Run Id

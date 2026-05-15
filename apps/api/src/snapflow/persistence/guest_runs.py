@@ -314,6 +314,7 @@ class GuestRunRepository:
             status=RunStatus(record.status),
             candidate_items=(),
             clarification_questions=(),
+            approval_decisions=(),
             clarification_count=0,
             safe_trace=(),
             created_at=GuestRunRepository._as_utc(record.created_at),

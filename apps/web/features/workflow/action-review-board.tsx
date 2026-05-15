@@ -2,12 +2,19 @@
 
 import { useReducer, useRef, useState } from "react";
 
+import type { RunView } from "../../lib/api/generated/types.gen";
+import {
+  createApprovalIdempotencyKey,
+  GuestSessionClientError,
+  submitGuestRunApproval,
+} from "../session/guest-session-client";
+
 import type { CandidateAction } from "./action-plan-client";
 import {
   actionReviewReducer,
+  createApprovalDecisions,
   createActionReviewState,
   getActionAuditDiff,
-  selectApprovedActions,
   summarizeActionDecisions,
   type ActionDecision,
   type ActionPriority,
@@ -16,37 +23,26 @@ import {
   type ActionReviewState,
 } from "./action-review";
 import { EvidenceRangeView } from "./evidence-range";
-import {
-  createIcsExportRequest,
-  downloadIcsFile,
-  IcsExportClientError,
-  requestIcsExport,
-  type IcsExportWarning,
-} from "./ics-export-client";
 
 type ActionReviewBoardProps = Readonly<{
   candidates: readonly CandidateAction[];
-  referenceDate: string;
+  runId: string;
+  onApproved: (run: RunView) => void;
 }>;
 
 type ActionReviewBoardViewProps = Readonly<{
   state: ActionReviewState;
-  exportState: IcsDownloadState;
+  approvalState: ApprovalSubmitState;
   onAction: (action: ActionReviewAction) => void;
-  onDownload: () => void;
+  onSubmit: () => void;
 }>;
 
-export type IcsDownloadState =
+export type ApprovalSubmitState =
   | Readonly<{ status: "idle" }>
   | Readonly<{ status: "loading" }>
-  | Readonly<{
-      status: "success";
-      exportedCount: number;
-      warnings: readonly IcsExportWarning[];
-    }>
   | Readonly<{ status: "error"; message: string }>;
 
-export const initialIcsDownloadState: IcsDownloadState = { status: "idle" };
+export const initialApprovalSubmitState: ApprovalSubmitState = { status: "idle" };
 
 const priorities: readonly ActionPriority[] = ["unknown", "low", "medium", "high"];
 
@@ -334,87 +330,64 @@ function CandidateReviewCard({
   );
 }
 
-function ActionExportPanel({
+function ActionApprovalPanel({
   reviewState,
-  exportState,
-  onDownload,
+  approvalState,
+  onSubmit,
 }: Readonly<{
   reviewState: ActionReviewState;
-  exportState: IcsDownloadState;
-  onDownload: () => void;
+  approvalState: ApprovalSubmitState;
+  onSubmit: () => void;
 }>) {
-  const approvedItems = selectApprovedActions(reviewState);
-  const datedCount = approvedItems.filter((item) => item.dueDate !== null).length;
-  const undatedCount = approvedItems.length - datedCount;
-  const isLoading = exportState.status === "loading";
+  const summary = summarizeActionDecisions(reviewState);
+  const hasOpenEditor = reviewState.items.some((item) => item.mode === "editing");
+  const isLoading = approvalState.status === "loading";
+  const canSubmit = summary.pending === 0 && !hasOpenEditor && !isLoading;
 
   return (
     <section className="action-export-panel" aria-labelledby="action-export-title">
       <div className="action-export-heading">
         <div>
-          <p className="section-kicker">Controlled export</p>
-          <h2 id="action-export-title">Download approved dates.</h2>
+          <p className="section-kicker">Server approval</p>
+          <h2 id="action-export-title">Save every decision.</h2>
         </div>
         <p>
-          The local demo API builds this calendar in memory. It does not keep a file,
-          and it never invents a date for an undated item.
+          The server compares this complete decision set with the saved checkpoint,
+          validates edits again, and keeps original evidence locked.
         </p>
       </div>
 
       <dl className="export-counts">
         <div>
           <dt>Approved</dt>
-          <dd>{approvedItems.length}</dd>
+          <dd>{summary.approved}</dd>
         </div>
         <div>
-          <dt>Calendar-ready</dt>
-          <dd>{datedCount}</dd>
+          <dt>Rejected</dt>
+          <dd>{summary.rejected}</dd>
         </div>
         <div>
-          <dt>Without a date</dt>
-          <dd>{undatedCount}</dd>
+          <dt>Pending</dt>
+          <dd>{summary.pending}</dd>
         </div>
       </dl>
 
-      {undatedCount > 0 && exportState.status !== "success" ? (
-        <p className="export-warning" role="note">
-          {undatedCount} approved {undatedCount === 1 ? "item has" : "items have"} no
-          date and will be skipped.
-        </p>
-      ) : null}
-
-      {exportState.status === "success" ? (
-        <div className="export-result" role="status" aria-live="polite">
-          <strong>
-            {exportState.exportedCount > 0
-              ? `${exportState.exportedCount} calendar ${
-                  exportState.exportedCount === 1 ? "event" : "events"
-                } downloaded.`
-              : "No file was downloaded because the approved items have no date."}
-          </strong>
-          {exportState.warnings.map((warning) => (
-            <span key={`${warning.action_id}-${warning.code}`}>{warning.message}</span>
-          ))}
-        </div>
-      ) : null}
-
-      {exportState.status === "error" ? (
+      {approvalState.status === "error" ? (
         <p className="export-error" role="alert">
-          {exportState.message}
+          {approvalState.message}
         </p>
       ) : null}
 
       <button
         className="button button--primary action-export-button"
         type="button"
-        disabled={approvedItems.length === 0 || isLoading}
-        onClick={onDownload}
+        disabled={!canSubmit}
+        onClick={onSubmit}
       >
-        {isLoading ? "Preparing calendar…" : "Download approved .ics"}
+        {isLoading ? "Saving decisions…" : "Submit decisions to server"}
       </button>
       <p className="export-boundary-note">
-        Only individually approved items are sent to this demo route. Pending and
-        rejected items stay out of the file.
+        Nothing can reach an export tool until this server-side approval succeeds.
       </p>
     </section>
   );
@@ -422,9 +395,9 @@ function ActionExportPanel({
 
 export function ActionReviewBoardView({
   state,
-  exportState,
+  approvalState,
   onAction,
-  onDownload,
+  onSubmit,
 }: ActionReviewBoardViewProps) {
   const summary = summarizeActionDecisions(state);
 
@@ -436,8 +409,8 @@ export function ActionReviewBoardView({
           <h2 id="action-review-title">Decide each candidate separately.</h2>
         </div>
         <p>
-          Nothing is approved by default. Approved items reach the local demo API only
-          when you choose the calendar download below.
+          Nothing is approved by default. Every candidate needs an explicit decision
+          before the server will accept this review.
         </p>
       </div>
 
@@ -457,10 +430,10 @@ export function ActionReviewBoardView({
           />
         ))}
       </ol>
-      <ActionExportPanel
+      <ActionApprovalPanel
         reviewState={state}
-        exportState={exportState}
-        onDownload={onDownload}
+        approvalState={approvalState}
+        onSubmit={onSubmit}
       />
     </section>
   );
@@ -468,58 +441,47 @@ export function ActionReviewBoardView({
 
 export function ActionReviewBoard({
   candidates,
-  referenceDate,
+  runId,
+  onApproved,
 }: ActionReviewBoardProps) {
   const [state, dispatch] = useReducer(
     actionReviewReducer,
     createActionReviewState(candidates),
   );
-  const [exportState, setExportState] = useState<IcsDownloadState>(
-    initialIcsDownloadState,
+  const [approvalState, setApprovalState] = useState<ApprovalSubmitState>(
+    initialApprovalSubmitState,
   );
-  const exportVersion = useRef(0);
+  const idempotencyKey = useRef<string | null>(null);
 
   const handleAction = (action: ActionReviewAction) => {
-    exportVersion.current += 1;
-    setExportState(initialIcsDownloadState);
+    idempotencyKey.current = null;
+    setApprovalState(initialApprovalSubmitState);
     dispatch(action);
   };
 
-  const handleDownload = async () => {
-    const approvedItems = selectApprovedActions(state);
-    if (approvedItems.length === 0) {
+  const handleSubmit = async () => {
+    const summary = summarizeActionDecisions(state);
+    if (summary.pending > 0 || state.items.some((item) => item.mode === "editing")) {
       return;
     }
-
-    const version = exportVersion.current + 1;
-    exportVersion.current = version;
-    setExportState({ status: "loading" });
+    const key = idempotencyKey.current ?? createApprovalIdempotencyKey();
+    idempotencyKey.current = key;
+    setApprovalState({ status: "loading" });
 
     try {
-      const response = await requestIcsExport(
-        createIcsExportRequest(approvedItems, referenceDate),
+      const run = await submitGuestRunApproval(
+        runId,
+        createApprovalDecisions(state),
+        key,
       );
-      if (exportVersion.current !== version) {
-        return;
-      }
-      if (response.exported_action_ids.length > 0) {
-        downloadIcsFile(response);
-      }
-      setExportState({
-        status: "success",
-        exportedCount: response.exported_action_ids.length,
-        warnings: response.warnings,
-      });
+      onApproved(run);
     } catch (error) {
-      if (exportVersion.current !== version) {
-        return;
-      }
-      setExportState({
+      setApprovalState({
         status: "error",
         message:
-          error instanceof IcsExportClientError
+          error instanceof GuestSessionClientError
             ? error.message
-            : "The browser could not download this calendar file.",
+            : "The browser could not save these approval decisions.",
       });
     }
   };
@@ -527,9 +489,9 @@ export function ActionReviewBoard({
   return (
     <ActionReviewBoardView
       state={state}
-      exportState={exportState}
+      approvalState={approvalState}
       onAction={handleAction}
-      onDownload={() => void handleDownload()}
+      onSubmit={() => void handleSubmit()}
     />
   );
 }

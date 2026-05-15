@@ -193,7 +193,12 @@ def test_contract_preview_fails_honestly_with_versioned_error(
     app = create_contract_app()
 
     with TestClient(app) as client:
-        response = client.request(method, path, json=body)
+        response = client.request(
+            method,
+            path,
+            json=body,
+            headers={"idempotency-key": "approve-run:contract-preview"},
+        )
 
     assert response.status_code == 501
     assert response.json() == {

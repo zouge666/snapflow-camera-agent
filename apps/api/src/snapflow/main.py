@@ -18,7 +18,6 @@ from snapflow.persistence.guest_runs import GuestRunRepository
 from snapflow.presentation.action_plans import create_action_plan_router
 from snapflow.presentation.guest_runs import create_guest_run_router
 from snapflow.presentation.health import router as health_router
-from snapflow.presentation.ics_exports import create_ics_export_router
 from snapflow.providers.base import ActionExtractionProvider
 from snapflow.providers.mock import MockProvider
 from snapflow.security.guest_tokens import GuestTokenService
@@ -116,7 +115,6 @@ def create_app(
         app.state.checkpoint_store = managed_checkpoint_store
     app.include_router(health_router)
     app.include_router(create_action_plan_router(action_extraction_workflow))
-    app.include_router(create_ics_export_router(export_approved_ics))
     if resolved_guest_service is not None:
         app.state.guest_run_service = resolved_guest_service
         app.include_router(create_guest_run_router(resolved_guest_service))

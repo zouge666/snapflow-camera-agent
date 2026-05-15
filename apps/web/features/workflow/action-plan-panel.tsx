@@ -2,7 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 
-import type { ActionPlanRequest, ActionPlanResponse } from "./action-plan-client";
+import type { RunView } from "../../lib/api/generated/types.gen";
+import type { ActionPlanResponse } from "./action-plan-client";
 import { ActionReviewBoard } from "./action-review-board";
 import { EvidenceRangeView } from "./evidence-range";
 import type { WorkflowState } from "./workflow-state";
@@ -11,6 +12,7 @@ type ActionPlanPanelProps = Readonly<{
   state: WorkflowState;
   onRetry: () => void;
   onAnswerClarification: (answer: string) => void;
+  onApproved: (run: RunView) => void;
 }>;
 
 function ClarificationForm({
@@ -86,10 +88,12 @@ function ClarificationForm({
 
 function ReadyPlan({
   plan,
-  request,
+  run,
+  onApproved,
 }: Readonly<{
   plan: ActionPlanResponse;
-  request: Pick<ActionPlanRequest, "reference_date">;
+  run: RunView;
+  onApproved: (run: RunView) => void;
 }>) {
   return (
     <>
@@ -110,12 +114,13 @@ function ReadyPlan({
             actions from other text.
           </p>
         </div>
-      ) : (
-        <ActionReviewBoard
-          candidates={plan.candidate_actions}
-          referenceDate={request.reference_date}
-        />
-      )}
+      ) : null}
+
+      <ActionReviewBoard
+        candidates={plan.candidate_actions}
+        runId={run.run_id}
+        onApproved={onApproved}
+      />
 
       {plan.clarifications.length > 0 ? (
         <section className="clarification-list" aria-labelledby="clarification-title">
@@ -140,17 +145,73 @@ function ReadyPlan({
   );
 }
 
+function ApprovalReceipt({ run }: Readonly<{ run: RunView }>) {
+  const approved = run.approval_decisions.filter(
+    (decision) => decision.decision === "approve",
+  );
+  const rejected = run.approval_decisions.length - approved.length;
+  const changes = run.approval_decisions.flatMap((decision) =>
+    decision.audit_diff.map((change) => ({
+      actionId: decision.action_id,
+      ...change,
+    })),
+  );
+
+  return (
+    <section className="action-export-panel" aria-labelledby="approval-receipt-title">
+      <div className="action-export-heading">
+        <div>
+          <p className="section-kicker">Server confirmed</p>
+          <h2 id="approval-receipt-title">Your decisions are saved.</h2>
+        </div>
+        <p>
+          The checkpoint contains {approved.length} approved and {rejected} rejected
+          {run.approval_decisions.length === 1 ? " action" : " actions"}. Export has not
+          started.
+        </p>
+      </div>
+      {changes.length > 0 ? (
+        <dl className="action-audit">
+          {changes.map((change) => (
+            <div key={`${change.actionId}-${change.field}`}>
+              <dt>
+                {change.actionId} · {change.field}
+              </dt>
+              <dd>
+                <span>{change.before ?? "unknown"}</span>
+                <span aria-hidden="true">→</span>
+                <strong>{change.after ?? "unknown"}</strong>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>No fields were changed from the validated candidate snapshot.</p>
+      )}
+      <p className="export-boundary-note">
+        A later export request can only use the approved items rebuilt by the server.
+      </p>
+    </section>
+  );
+}
+
 export function ActionPlanPanel({
   state,
   onRetry,
   onAnswerClarification,
+  onApproved,
 }: ActionPlanPanelProps) {
   if (state.status === "review") {
     return null;
   }
 
   return (
-    <section className="action-plan-shell" aria-labelledby="action-plan-title">
+    <section
+      className="action-plan-shell"
+      aria-labelledby={
+        state.status === "approved" ? "approval-receipt-title" : "action-plan-title"
+      }
+    >
       <div className="provider-strip">
         <div>
           <span className="provider-dot" aria-hidden="true" />
@@ -190,8 +251,10 @@ export function ActionPlanPanel({
       ) : null}
 
       {state.status === "ready" ? (
-        <ReadyPlan plan={state.plan} request={state.request} />
+        <ReadyPlan plan={state.plan} run={state.run} onApproved={onApproved} />
       ) : null}
+
+      {state.status === "approved" ? <ApprovalReceipt run={state.run} /> : null}
     </section>
   );
 }

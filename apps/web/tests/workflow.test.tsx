@@ -109,6 +109,7 @@ const clarificationRun: RunView = {
     },
   ],
   clarification_count: 0,
+  approval_decisions: [],
   safe_trace: [
     {
       sequence: 0,
@@ -122,12 +123,59 @@ const clarificationRun: RunView = {
   expires_at: "2026-01-16T10:00:00Z",
 };
 
+const reviewRun: RunView = {
+  ...clarificationRun,
+  run_id: "run_approval-test",
+  status: "interrupted_for_approval",
+  candidate_items: plan.candidate_actions.map((action) => ({
+    id: action.id,
+    title: action.title,
+    owner: action.owner,
+    due_date: action.due?.iso_date ?? null,
+    due_text: action.due?.raw_text ?? null,
+    priority: action.priority,
+    evidence: action.evidence,
+  })),
+  clarification_questions: [],
+};
+
+const approvedRun: RunView = {
+  ...reviewRun,
+  status: "approval_received",
+  approval_decisions: [
+    {
+      action_id: "action-1",
+      decision: "approve",
+      reviewed: {
+        title: "Send the final onboarding checklist",
+        owner: "Alex",
+        due_date: "2026-01-17",
+        priority: "high",
+      },
+      audit_diff: [
+        {
+          field: "title",
+          before: "Send the revised onboarding checklist",
+          after: "Send the final onboarding checklist",
+        },
+      ],
+    },
+    {
+      action_id: "action-2",
+      decision: "reject",
+      reviewed: null,
+      audit_diff: [],
+    },
+  ],
+};
+
 const renderPanel = (state: WorkflowState) =>
   renderToStaticMarkup(
     <ActionPlanPanel
       state={state}
       onRetry={() => undefined}
       onAnswerClarification={() => undefined}
+      onApproved={() => undefined}
     />,
   );
 
@@ -236,19 +284,31 @@ describe("workflow states", () => {
     const empty = workflowReducer(error, {
       type: "receive-plan",
       plan: emptyPlan,
-      request,
+      run: reviewRun,
+      referenceDate: request.reference_date,
     });
     const actions = workflowReducer(empty, {
       type: "receive-plan",
       plan,
-      request,
+      run: reviewRun,
+      referenceDate: request.reference_date,
     });
     const invalidated = workflowReducer(actions, { type: "invalidate-plan" });
 
     expect(loading.status).toBe("loading");
     expect(error).toEqual({ status: "error", message: "Try again." });
-    expect(empty).toEqual({ status: "ready", plan: emptyPlan, request });
-    expect(actions).toEqual({ status: "ready", plan, request });
+    expect(empty).toEqual({
+      status: "ready",
+      plan: emptyPlan,
+      run: reviewRun,
+      referenceDate: request.reference_date,
+    });
+    expect(actions).toEqual({
+      status: "ready",
+      plan,
+      run: reviewRun,
+      referenceDate: request.reference_date,
+    });
     expect(invalidated).toEqual(initialWorkflowState);
   });
 
@@ -312,15 +372,26 @@ describe("workflow states", () => {
   });
 
   it("renders an honest empty state without inventing candidates", () => {
-    const markup = renderPanel({ status: "ready", plan: emptyPlan, request });
+    const markup = renderPanel({
+      status: "ready",
+      plan: emptyPlan,
+      run: { ...reviewRun, candidate_items: [] },
+      referenceDate: request.reference_date,
+    });
 
     expect(markup).toContain("No candidate actions found.");
     expect(markup).toContain("will not invent actions");
     expect(markup).not.toContain("candidate-card");
+    expect(markup).toContain("Submit decisions to server");
   });
 
   it("renders actions, unknown values, clarifications and source ranges", () => {
-    const markup = renderPanel({ status: "ready", plan, request });
+    const markup = renderPanel({
+      status: "ready",
+      plan,
+      run: reviewRun,
+      referenceDate: request.reference_date,
+    });
 
     expect(markup).toContain(plan.summary);
     expect(markup).toContain("Send the revised onboarding checklist");
@@ -333,12 +404,17 @@ describe("workflow states", () => {
     expect(markup.match(/>Approve</g)).toHaveLength(plan.candidate_actions.length);
     expect(markup.match(/>Reject</g)).toHaveLength(plan.candidate_actions.length);
     expect(markup).toContain("Nothing is approved by default.");
-    expect(markup).toContain("Download approved .ics");
+    expect(markup).toContain("Submit decisions to server");
     expect(markup).not.toContain("Approve all");
   });
 
   it("has no automatic axe violations in the populated action plan", async () => {
-    const markup = renderPanel({ status: "ready", plan, request });
+    const markup = renderPanel({
+      status: "ready",
+      plan,
+      run: reviewRun,
+      referenceDate: request.reference_date,
+    });
     const dom = new JSDOM(
       `<!doctype html><html lang="en"><head><title>SnapFlow plan test</title></head><body><main>${markup}</main></body></html>`,
       {
@@ -359,5 +435,19 @@ describe("workflow states", () => {
     });
 
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  it("renders the server-confirmed decision and audit receipt", () => {
+    const markup = renderPanel({
+      status: "approved",
+      plan,
+      run: approvedRun,
+      referenceDate: request.reference_date,
+    });
+
+    expect(markup).toContain("Your decisions are saved.");
+    expect(markup).toContain("1 approved and 1 rejected");
+    expect(markup).toContain("Send the final onboarding checklist");
+    expect(markup).toContain("Export has not started");
   });
 });

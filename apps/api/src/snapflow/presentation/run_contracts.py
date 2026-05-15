@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Path, Response, status
+from fastapi import APIRouter, Body, Header, Path, Response, status
 from fastapi.responses import JSONResponse
 
 from snapflow.domain.run_contract import (
@@ -116,9 +116,18 @@ async def answer_clarification_contract(
 async def submit_approval_contract(
     run_id: RunPath,
     request: Annotated[ApprovalRequest, Body()],
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=8,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9._:-]+$",
+        ),
+    ],
 ) -> Response:
     """Describe server-validated per-item approval."""
-    del run_id, request
+    del run_id, request, idempotency_key
     return _not_implemented()
 
 

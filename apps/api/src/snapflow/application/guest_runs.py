@@ -8,6 +8,7 @@ from snapflow.domain.clarifications import ClarificationResolution
 from snapflow.domain.run_contract import (
     ActionItem,
     ActionPriority,
+    ApprovalRequest,
     ClarificationAnswerKind,
     ClarificationAnswerRequest,
     ClarificationQuestion,
@@ -24,6 +25,7 @@ from snapflow.persistence.guest_runs import CreatedRun, GuestRunRepository
 from snapflow.security.guest_tokens import GuestPrincipal, GuestTokenService
 from snapflow.workflow.graph import (
     ActionExtractionWorkflow,
+    WorkflowApprovalConflictError,
     WorkflowCheckpointNotFoundError,
     WorkflowClarificationConflictError,
 )
@@ -153,6 +155,58 @@ class GuestRunService:
         )
         return self._run_view(persisted, workflow_run, status)
 
+    def submit_approval(
+        self,
+        bearer_token: str,
+        run_id: str,
+        idempotency_key: str,
+        request: ApprovalRequest,
+    ) -> RunView:
+        """Authorize, idempotently consume, and persist one approval command."""
+        principal = self.tokens.verify(bearer_token)
+        persisted = self.repository.get_owned_run(principal.session_id, run_id)
+        if self.workflow is None:
+            raise WorkflowCheckpointNotFoundError
+        if persisted.status not in {
+            RunStatus.INTERRUPTED_FOR_APPROVAL,
+            RunStatus.APPROVAL_RECEIVED,
+        }:
+            raise WorkflowApprovalConflictError
+
+        current = self.workflow.load(run_id)
+        if current.status is WorkflowStatus.APPROVAL_RECEIVED:
+            result = current.approval_result
+            if result is None:
+                raise WorkflowCheckpointNotFoundError
+            if (
+                result.idempotency_key != idempotency_key
+                or result.accepted_request != request
+            ):
+                raise WorkflowApprovalConflictError
+            status = self._public_status(current.status)
+            if persisted.status is not status:
+                persisted = self.repository.update_run_status(
+                    principal.session_id,
+                    run_id,
+                    status,
+                )
+            return self._run_view(persisted, current, status)
+
+        if persisted.status is not RunStatus.INTERRUPTED_FOR_APPROVAL:
+            raise WorkflowApprovalConflictError
+        workflow_run = self.workflow.submit_approval(
+            run_id,
+            idempotency_key,
+            request,
+        )
+        status = self._public_status(workflow_run.status)
+        persisted = self.repository.update_run_status(
+            principal.session_id,
+            run_id,
+            status,
+        )
+        return self._run_view(persisted, workflow_run, status)
+
     @staticmethod
     def _workflow_request(request: CreateRunRequest) -> ActionPlanRequest:
         return ActionPlanRequest(
@@ -169,6 +223,7 @@ class GuestRunService:
                 RunStatus.INTERRUPTED_FOR_CLARIFICATION
             ),
             WorkflowStatus.READY_FOR_APPROVAL: RunStatus.INTERRUPTED_FOR_APPROVAL,
+            WorkflowStatus.APPROVAL_RECEIVED: RunStatus.APPROVAL_RECEIVED,
         }
         try:
             return status_map[status]
@@ -234,12 +289,18 @@ class GuestRunService:
             )
             for sequence, event in enumerate(workflow_run.safe_trace)
         )
+        approval_decisions = (
+            workflow_run.approval_result.decisions
+            if workflow_run.approval_result is not None
+            else ()
+        )
         return RunView(
             schema_version="1.0",
             run_id=persisted.run_id,
             status=status,
             candidate_items=actions,
             clarification_questions=questions,
+            approval_decisions=approval_decisions,
             clarification_count=workflow_run.clarification_count,
             safe_trace=trace,
             created_at=persisted.created_at,

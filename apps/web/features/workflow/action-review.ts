@@ -1,4 +1,5 @@
 import type { CandidateAction, EvidenceRange } from "./action-plan-client";
+import type { ApprovalDecisionInput } from "../../lib/api/generated/types.gen";
 
 export type ActionDecision = "pending" | "approved" | "rejected";
 export type ActionPriority = CandidateAction["priority"];
@@ -277,6 +278,28 @@ export function getActionAuditDiff(
   ];
 
   return comparisons.filter((change) => change.before !== change.after);
+}
+
+export function createApprovalDecisions(
+  state: ActionReviewState,
+): readonly ApprovalDecisionInput[] {
+  if (state.items.some((item) => item.decision === "pending")) {
+    return [];
+  }
+
+  return state.items.map((item) => ({
+    action_id: item.original.id,
+    decision: item.decision === "approved" ? "approve" : "reject",
+    reviewed:
+      item.decision === "approved" && getActionAuditDiff(item).length > 0
+        ? {
+            title: item.current.title,
+            owner: item.current.owner,
+            due_date: item.current.dueDate,
+            priority: item.current.priority,
+          }
+        : null,
+  }));
 }
 
 export function summarizeActionDecisions(

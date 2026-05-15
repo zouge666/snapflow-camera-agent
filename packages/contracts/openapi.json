@@ -178,6 +178,51 @@
         "title": "ActionPriority",
         "type": "string"
       },
+      "ApprovalAuditChange": {
+        "additionalProperties": false,
+        "description": "One server-computed field change retained for human review.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "field": {
+            "enum": [
+              "title",
+              "owner",
+              "due_date",
+              "priority"
+            ],
+            "title": "Field",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "before",
+          "after"
+        ],
+        "title": "ApprovalAuditChange",
+        "type": "object"
+      },
       "ApprovalDecisionInput": {
         "additionalProperties": false,
         "description": "One explicit approval or rejection, with optional reviewed fields.",
@@ -210,6 +255,46 @@
         "title": "ApprovalDecisionInput",
         "type": "object"
       },
+      "ApprovalDecisionView": {
+        "additionalProperties": false,
+        "description": "One accepted decision and its server-computed reviewed snapshot.",
+        "properties": {
+          "action_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Action Id",
+            "type": "string"
+          },
+          "audit_diff": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalAuditChange"
+            },
+            "title": "Audit Diff",
+            "type": "array"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ActionDecision"
+          },
+          "reviewed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewedActionFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "action_id",
+          "decision",
+          "reviewed",
+          "audit_diff"
+        ],
+        "title": "ApprovalDecisionView",
+        "type": "object"
+      },
       "ApprovalRequest": {
         "additionalProperties": false,
         "description": "A complete set of per-item decisions for one approval interrupt.",
@@ -218,7 +303,6 @@
             "items": {
               "$ref": "#/components/schemas/ApprovalDecisionInput"
             },
-            "minItems": 1,
             "title": "Decisions",
             "type": "array"
           },
@@ -233,82 +317,6 @@
           "decisions"
         ],
         "title": "ApprovalRequest",
-        "type": "object"
-      },
-      "ApprovedActionItem": {
-        "additionalProperties": false,
-        "description": "A reviewed item that is explicitly allowed to cross the tool boundary.",
-        "properties": {
-          "decision": {
-            "const": "approved",
-            "title": "Decision",
-            "type": "string"
-          },
-          "due_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Due Date"
-          },
-          "evidence": {
-            "items": {
-              "$ref": "#/components/schemas/EvidenceRange"
-            },
-            "minItems": 1,
-            "title": "Evidence",
-            "type": "array"
-          },
-          "id": {
-            "pattern": "^action-[1-9][0-9]*$",
-            "title": "Id",
-            "type": "string"
-          },
-          "owner": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner"
-          },
-          "priority": {
-            "enum": [
-              "low",
-              "medium",
-              "high",
-              "unknown"
-            ],
-            "title": "Priority",
-            "type": "string"
-          },
-          "title": {
-            "maxLength": 240,
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "owner",
-          "due_date",
-          "priority",
-          "evidence",
-          "decision"
-        ],
-        "title": "ApprovedActionItem",
         "type": "object"
       },
       "CandidateAction": {
@@ -967,111 +975,6 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "IcsExportRequest": {
-        "additionalProperties": false,
-        "description": "Reference date and approved items accepted by the demo export endpoint.",
-        "properties": {
-          "approved_items": {
-            "items": {
-              "$ref": "#/components/schemas/ApprovedActionItem"
-            },
-            "title": "Approved Items",
-            "type": "array"
-          },
-          "reference_date": {
-            "format": "date",
-            "title": "Reference Date",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": "1.0",
-            "title": "Schema Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "schema_version",
-          "reference_date",
-          "approved_items"
-        ],
-        "title": "IcsExportRequest",
-        "type": "object"
-      },
-      "IcsExportResponse": {
-        "additionalProperties": false,
-        "description": "Download metadata and in-memory content returned over HTTP.",
-        "properties": {
-          "content": {
-            "title": "Content",
-            "type": "string"
-          },
-          "content_type": {
-            "const": "text/calendar; charset=utf-8",
-            "title": "Content Type",
-            "type": "string"
-          },
-          "exported_action_ids": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Exported Action Ids",
-            "type": "array"
-          },
-          "filename": {
-            "const": "snapflow-approved-actions.ics",
-            "title": "Filename",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": "1.0",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "warnings": {
-            "items": {
-              "$ref": "#/components/schemas/IcsExportWarning"
-            },
-            "title": "Warnings",
-            "type": "array"
-          }
-        },
-        "required": [
-          "content",
-          "exported_action_ids",
-          "warnings",
-          "schema_version",
-          "filename",
-          "content_type"
-        ],
-        "title": "IcsExportResponse",
-        "type": "object"
-      },
-      "IcsExportWarning": {
-        "additionalProperties": false,
-        "description": "One deterministic reason an approved item was not exported.",
-        "properties": {
-          "action_id": {
-            "title": "Action Id",
-            "type": "string"
-          },
-          "code": {
-            "const": "missing_due_date",
-            "title": "Code",
-            "type": "string"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "action_id",
-          "code",
-          "message"
-        ],
-        "title": "IcsExportWarning",
-        "type": "object"
-      },
       "LiveHealth": {
         "properties": {
           "service": {
@@ -1276,6 +1179,13 @@
         "additionalProperties": false,
         "description": "A privacy-aware snapshot returned when a run is created or resumed.",
         "properties": {
+          "approval_decisions": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalDecisionView"
+            },
+            "title": "Approval Decisions",
+            "type": "array"
+          },
           "candidate_items": {
             "items": {
               "$ref": "#/components/schemas/ActionItem"
@@ -1335,6 +1245,7 @@
           "status",
           "candidate_items",
           "clarification_questions",
+          "approval_decisions",
           "clarification_count",
           "safe_trace",
           "created_at",
@@ -1580,47 +1491,6 @@
         "summary": "Create Action Plan",
         "tags": [
           "demo"
-        ]
-      }
-    },
-    "/api/demo/exports/ics": {
-      "post": {
-        "operationId": "export_ics_api_demo_exports_ics_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IcsExportRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IcsExportResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Export Ics",
-        "tags": [
-          "demo-exports"
         ]
       }
     },
@@ -2075,6 +1945,18 @@
               "minLength": 8,
               "pattern": "^run_[A-Za-z0-9_-]+$",
               "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "Idempotency-Key",
               "type": "string"
             }
           }

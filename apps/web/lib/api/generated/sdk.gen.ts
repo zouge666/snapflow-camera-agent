@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnswerClarificationData, AnswerClarificationErrors, AnswerClarificationResponses, CreateActionPlanApiDemoActionPlanPostData, CreateActionPlanApiDemoActionPlanPostErrors, CreateActionPlanApiDemoActionPlanPostResponses, CreateGuestSessionData, CreateGuestSessionErrors, CreateGuestSessionResponses, CreateRunData, CreateRunErrors, CreateRunResponses, DeleteRunData, DeleteRunErrors, DeleteRunResponses, ExportIcsApiDemoExportsIcsPostData, ExportIcsApiDemoExportsIcsPostErrors, ExportIcsApiDemoExportsIcsPostResponses, ExportRunData, ExportRunErrors, ExportRunResponses, GetLivenessHealthLiveGetData, GetLivenessHealthLiveGetResponses, RefreshGuestSessionData, RefreshGuestSessionErrors, RefreshGuestSessionResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SubmitApprovalData, SubmitApprovalErrors, SubmitApprovalResponses } from './types.gen';
+import type { AnswerClarificationData, AnswerClarificationErrors, AnswerClarificationResponses, CreateActionPlanApiDemoActionPlanPostData, CreateActionPlanApiDemoActionPlanPostErrors, CreateActionPlanApiDemoActionPlanPostResponses, CreateGuestSessionData, CreateGuestSessionErrors, CreateGuestSessionResponses, CreateRunData, CreateRunErrors, CreateRunResponses, DeleteRunData, DeleteRunErrors, DeleteRunResponses, ExportRunData, ExportRunErrors, ExportRunResponses, GetLivenessHealthLiveGetData, GetLivenessHealthLiveGetResponses, RefreshGuestSessionData, RefreshGuestSessionErrors, RefreshGuestSessionResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, SubmitApprovalData, SubmitApprovalErrors, SubmitApprovalResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -25,18 +25,6 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  */
 export const createActionPlanApiDemoActionPlanPost = <ThrowOnError extends boolean = false>(options: Options<CreateActionPlanApiDemoActionPlanPostData, ThrowOnError>) => (options.client ?? client).post<CreateActionPlanApiDemoActionPlanPostResponses, CreateActionPlanApiDemoActionPlanPostErrors, ThrowOnError>({
     url: '/api/demo/action-plan',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * Export Ics
- */
-export const exportIcsApiDemoExportsIcsPost = <ThrowOnError extends boolean = false>(options: Options<ExportIcsApiDemoExportsIcsPostData, ThrowOnError>) => (options.client ?? client).post<ExportIcsApiDemoExportsIcsPostResponses, ExportIcsApiDemoExportsIcsPostErrors, ThrowOnError>({
-    url: '/api/demo/exports/ics',
     ...options,
     headers: {
         'Content-Type': 'application/json',

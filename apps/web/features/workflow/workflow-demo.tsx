@@ -88,27 +88,34 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
   const selectedSample =
     samples.find((sample) => sample.id === selectedSampleId) ?? samples[0];
 
-  const showRun = useCallback(
-    (run: RunView, referenceDate: string, request?: ActionPlanRequest) => {
-      if (run.status === "interrupted_for_clarification") {
-        dispatch({ type: "receive-clarification", run, referenceDate });
-        return;
-      }
-      if (run.status === "interrupted_for_approval") {
-        dispatch({
-          type: "receive-plan",
-          plan: planFromRun(run),
-          request: request ?? { reference_date: referenceDate },
-        });
-        return;
-      }
+  const showRun = useCallback((run: RunView, referenceDate: string) => {
+    if (run.status === "interrupted_for_clarification") {
+      dispatch({ type: "receive-clarification", run, referenceDate });
+      return;
+    }
+    if (run.status === "interrupted_for_approval") {
       dispatch({
-        type: "fail-plan",
-        message: "The saved run is not at a reviewable workflow step.",
+        type: "receive-plan",
+        plan: planFromRun(run),
+        run,
+        referenceDate,
       });
-    },
-    [],
-  );
+      return;
+    }
+    if (run.status === "approval_received") {
+      dispatch({
+        type: "receive-approval",
+        plan: planFromRun(run),
+        run,
+        referenceDate,
+      });
+      return;
+    }
+    dispatch({
+      type: "fail-plan",
+      message: "The saved run is not at a reviewable workflow step.",
+    });
+  }, []);
 
   useEffect(() => {
     const activeRun = readActiveGuestRun();
@@ -146,7 +153,7 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
     try {
       const run = await createGuestRun(request, idempotencyKey);
       if (requestVersion.current === version) {
-        showRun(run, request.reference_date, request);
+        showRun(run, request.reference_date);
       }
     } catch (error) {
       if (requestVersion.current === version) {
@@ -181,7 +188,7 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
         question.answer_kind,
         answer,
       );
-      showRun(run, state.referenceDate, lastRequest.current ?? undefined);
+      showRun(run, state.referenceDate);
     } catch (error) {
       dispatch({
         type: "fail-clarification-answer",
@@ -210,7 +217,11 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
 
   return (
     <>
-      <DemoStepper currentStep={state.status === "review" ? 1 : 2} />
+      <DemoStepper
+        currentStep={
+          state.status === "review" ? 1 : state.status === "approved" ? 3 : 2
+        }
+      />
       <div className="demo-provider-banner">
         <div>
           <span className="provider-dot" aria-hidden="true" />
@@ -249,6 +260,14 @@ export function WorkflowDemo({ samples, cameraPanelProps }: WorkflowDemoProps) {
       <ActionPlanPanel
         state={state}
         onAnswerClarification={(answer) => void answerClarification(answer)}
+        onApproved={(run) =>
+          showRun(
+            run,
+            state.status === "ready"
+              ? state.referenceDate
+              : reviewSource.initialFields.referenceDate,
+          )
+        }
         onRetry={() => {
           if (lastRequest.current) {
             void runRequest(lastRequest.current);

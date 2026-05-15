@@ -1,4 +1,8 @@
 import type {
+  ApprovalAuditChange,
+  ApprovalDecisionInput,
+  ApprovalDecisionView,
+  ActionPriority,
   ActionItem,
   ClarificationAnswerKind,
   ClarificationQuestion,
@@ -162,6 +166,50 @@ function readClarification(value: unknown): ClarificationQuestion {
   };
 }
 
+function readApprovalAudit(value: unknown): ApprovalAuditChange {
+  const record = readRecord(value);
+  const field = readString(record.field);
+  if (!["title", "owner", "due_date", "priority"].includes(field)) {
+    return invalidRun();
+  }
+  return {
+    field: field as ApprovalAuditChange["field"],
+    before: readNullableString(record.before),
+    after: readNullableString(record.after),
+  };
+}
+
+function readApprovalDecision(value: unknown): ApprovalDecisionView {
+  const record = readRecord(value);
+  const decision = readString(record.decision);
+  if (decision !== "approve" && decision !== "reject") return invalidRun();
+  let reviewed: ApprovalDecisionView["reviewed"] = null;
+  if (record.reviewed !== null) {
+    const fields = readRecord(record.reviewed);
+    const priority = readString(fields.priority);
+    if (!priorities.has(priority)) return invalidRun();
+    reviewed = {
+      title: readString(fields.title),
+      owner: readNullableString(fields.owner),
+      due_date: readNullableString(fields.due_date),
+      priority: priority as ActionPriority,
+    };
+  }
+  const auditDiff = readArray(record.audit_diff).map(readApprovalAudit);
+  if (
+    (decision === "approve" && reviewed === null) ||
+    (decision === "reject" && (reviewed !== null || auditDiff.length > 0))
+  ) {
+    return invalidRun();
+  }
+  return {
+    action_id: readString(record.action_id),
+    decision,
+    reviewed,
+    audit_diff: auditDiff,
+  };
+}
+
 function readTrace(value: unknown): SafeTraceEvent {
   const record = readRecord(value);
   const outcome = readString(record.outcome);
@@ -194,6 +242,10 @@ export function parseRunResponse(value: unknown): RunView {
   const run = readRecord(envelope.run);
   const status = readString(run.status) as RunStatus;
   const questions = readArray(run.clarification_questions).map(readClarification);
+  const candidates = readArray(run.candidate_items).map(readAction);
+  const approvals = readArray(run.approval_decisions).map(readApprovalDecision);
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const approvalIds = new Set(approvals.map((decision) => decision.action_id));
   if (
     envelope.schema_version !== "1.0" ||
     run.schema_version !== "1.0" ||
@@ -202,7 +254,12 @@ export function parseRunResponse(value: unknown): RunView {
     !Number.isInteger(run.clarification_count) ||
     run.clarification_count < 0 ||
     run.clarification_count > 2 ||
-    (status === "interrupted_for_clarification" && questions.length !== 1)
+    (status === "interrupted_for_clarification" && questions.length !== 1) ||
+    (status === "approval_received" &&
+      (approvalIds.size !== candidateIds.size ||
+        approvals.length !== approvalIds.size ||
+        [...approvalIds].some((id) => !candidateIds.has(id)))) ||
+    (status !== "approval_received" && approvals.length > 0)
   ) {
     return invalidRun();
   }
@@ -210,8 +267,9 @@ export function parseRunResponse(value: unknown): RunView {
     schema_version: "1.0",
     run_id: readString(run.run_id),
     status,
-    candidate_items: readArray(run.candidate_items).map(readAction),
+    candidate_items: candidates,
     clarification_questions: questions,
+    approval_decisions: approvals,
     clarification_count: run.clarification_count,
     safe_trace: readArray(run.safe_trace).map(readTrace),
     created_at: readString(run.created_at),
@@ -452,6 +510,42 @@ export async function answerGuestRunClarification(
   return parseRunResponse(await response.json());
 }
 
+export async function submitGuestRunApproval(
+  runId: string,
+  decisions: readonly ApprovalDecisionInput[],
+  idempotencyKey: string,
+  fetcher: Fetcher = fetch,
+  storage: Storage = window.sessionStorage,
+): Promise<RunView> {
+  const session = await ensureGuestSession(fetcher, storage);
+  let response: Response;
+  try {
+    response = await fetcher(`/api/runs/${encodeURIComponent(runId)}/approval`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${session.access_token}`,
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey,
+      },
+      body: JSON.stringify({ schema_version: "1.0", decisions }),
+    });
+  } catch {
+    throw new GuestSessionClientError(
+      "The approval service is temporarily unavailable.",
+    );
+  }
+  if (!response.ok) {
+    throw new GuestSessionClientError(
+      response.status === 409
+        ? "This approval is stale, changed, or has already been submitted."
+        : response.status === 422
+          ? "These decisions no longer match the saved action candidates."
+          : "The approval decisions could not be saved.",
+    );
+  }
+  return parseRunResponse(await response.json());
+}
+
 export function readActiveGuestRun(
   storage: Storage = window.sessionStorage,
 ): ActiveGuestRun | null {
@@ -484,4 +578,8 @@ export function clearActiveGuestRun(storage: Storage = window.sessionStorage): v
 
 export function createIdempotencyKey(): string {
   return `create-run:${crypto.randomUUID()}`;
+}
+
+export function createApprovalIdempotencyKey(): string {
+  return `approve-run:${crypto.randomUUID()}`;
 }

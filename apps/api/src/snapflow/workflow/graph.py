@@ -13,6 +13,11 @@ from langgraph.types import Command, StateSnapshot
 
 from snapflow.application.build_plan import BuildActionPlan
 from snapflow.domain.action_plan import ActionPlanRequest, ActionPlanResponse
+from snapflow.domain.approvals import (
+    ApprovalCommand,
+    ApprovalResolver,
+    ApprovalValidationError,
+)
 from snapflow.domain.clarifications import (
     ClarificationResolution,
     ClarificationResolver,
@@ -22,6 +27,7 @@ from snapflow.domain.clarifications import (
 )
 from snapflow.domain.dates import DateNormalizer
 from snapflow.domain.evidence import EvidenceValidator
+from snapflow.domain.run_contract import ApprovalRequest
 from snapflow.workflow.nodes import ActionExtractionNodes
 from snapflow.workflow.state import (
     ActionExtractionRun,
@@ -60,12 +66,21 @@ class WorkflowClarificationAnswerError(ValueError):
     """A current answer cannot deterministically resolve its target field."""
 
 
+class WorkflowApprovalConflictError(RuntimeError):
+    """A stale or duplicate submission cannot consume an approval interrupt."""
+
+
+class WorkflowApprovalValidationError(ValueError):
+    """A submission does not match the current approval snapshot."""
+
+
 @dataclass(frozen=True, slots=True)
 class ActionExtractionWorkflow:
     """Run the compiled graph and publish only a validated terminal plan."""
 
     graph: CompiledActionExtractionGraph
     clarification_resolver: ClarificationResolver
+    approval_resolver: ApprovalResolver
 
     def run(self, request: ActionPlanRequest) -> ActionExtractionRun:
         """Return a typed result with safe metadata for tests and future tracing."""
@@ -103,10 +118,14 @@ class ActionExtractionWorkflow:
                 return self._run_from_snapshot(state)
             return self._invoke_checkpointed(None, run_id)
         if state.status in {
-            WorkflowStatus.READY_FOR_APPROVAL,
             WorkflowStatus.FATAL_FAILURE,
+            WorkflowStatus.APPROVAL_RECEIVED,
         }:
             return self._run_from_snapshot(state)
+        if state.status is WorkflowStatus.READY_FOR_APPROVAL:
+            if self._has_pending_approval_interrupt(snapshot, state):
+                return self._run_from_snapshot(state)
+            return self._invoke_checkpointed(None, run_id)
         return self._invoke_checkpointed(None, run_id)
 
     def load(self, run_id: str) -> ActionExtractionRun:
@@ -126,9 +145,16 @@ class ActionExtractionWorkflow:
             raise WorkflowCheckpointError(
                 "The workflow has not reached a recoverable pause."
             )
+        if state.status is WorkflowStatus.READY_FOR_APPROVAL and not (
+            self._has_pending_approval_interrupt(snapshot, state)
+        ):
+            raise WorkflowCheckpointError(
+                "The workflow has not reached a recoverable pause."
+            )
         if state.status not in {
             WorkflowStatus.NEEDS_CLARIFICATION,
             WorkflowStatus.READY_FOR_APPROVAL,
+            WorkflowStatus.APPROVAL_RECEIVED,
             WorkflowStatus.FATAL_FAILURE,
         }:
             raise WorkflowCheckpointError(
@@ -181,6 +207,51 @@ class ActionExtractionWorkflow:
             run_id,
         )
 
+    def submit_approval(
+        self,
+        run_id: str,
+        idempotency_key: str,
+        request: ApprovalRequest,
+    ) -> ActionExtractionRun:
+        """Resume exactly the current approval interrupt after prevalidation."""
+        try:
+            snapshot = self.graph.get_state(self._checkpoint_config(run_id))
+        except Exception as error:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint could not be loaded."
+            ) from error
+        if not snapshot.values:
+            raise WorkflowCheckpointNotFoundError
+        state = self._validate_snapshot(snapshot.values)
+        if state.status is not WorkflowStatus.READY_FOR_APPROVAL or not (
+            self._has_pending_approval_interrupt(snapshot, state)
+        ):
+            raise WorkflowApprovalConflictError
+        if state.candidate_plan is None:
+            raise WorkflowCheckpointError(
+                "The workflow checkpoint contains invalid state."
+            )
+        try:
+            self.approval_resolver.resolve(
+                state.candidate_plan,
+                request,
+                idempotency_key,
+            )
+        except ApprovalValidationError as error:
+            raise WorkflowApprovalValidationError from error
+        return self._invoke_checkpointed(
+            cast(
+                ActionExtractionState,
+                Command(
+                    resume=ApprovalCommand(
+                        idempotency_key=idempotency_key,
+                        request=request,
+                    ).model_dump(mode="json")
+                ),
+            ),
+            run_id,
+        )
+
     def _invoke_checkpointed(
         self,
         input_state: ActionExtractionState | None,
@@ -229,6 +300,25 @@ class ActionExtractionWorkflow:
         return isinstance(value, dict) and value.get("id") == questions[0].id
 
     @staticmethod
+    def _has_pending_approval_interrupt(
+        snapshot: StateSnapshot,
+        state: ActionExtractionStateSnapshot,
+    ) -> bool:
+        if snapshot.next != (WorkflowNode.WAIT_FOR_APPROVAL.value,):
+            return False
+        if len(snapshot.interrupts) != 1 or state.candidate_plan is None:
+            return False
+        value = snapshot.interrupts[0].value
+        if not isinstance(value, dict) or value.get("kind") != "approval":
+            return False
+        candidates = value.get("candidate_actions")
+        if not isinstance(candidates, list):
+            return False
+        expected = [item.id for item in state.candidate_plan.candidate_actions]
+        received = [item.get("id") for item in candidates if isinstance(item, dict)]
+        return received == expected and len(received) == len(candidates)
+
+    @staticmethod
     def _run_from_state(raw_state: dict[str, object]) -> ActionExtractionRun:
         state = ActionExtractionWorkflow._validate_snapshot(
             {key: value for key, value in raw_state.items() if key != "__interrupt__"}
@@ -262,6 +352,7 @@ class ActionExtractionWorkflow:
             plan=ActionPlanResponse.model_validate(
                 state.candidate_plan.model_dump(mode="python")
             ),
+            approval_result=state.approval_result,
             retry_count=state.retry_count,
             clarification_count=state.clarification_count,
             safe_trace=state.safe_trace,
@@ -282,12 +373,14 @@ def create_action_extraction_workflow(
     """Compile the single extraction graph, optionally with durable pauses."""
     date_normalizer = DateNormalizer()
     clarification_resolver = ClarificationResolver(date_normalizer)
+    approval_resolver = ApprovalResolver()
     nodes = ActionExtractionNodes(
         planner=planner,
         limits=limits,
         evidence_validator=EvidenceValidator(),
         date_normalizer=date_normalizer,
         clarification_resolver=clarification_resolver,
+        approval_resolver=approval_resolver,
         interrupts_enabled=checkpointer is not None,
         **({"clock": clock} if clock is not None else {}),
     )
@@ -376,15 +469,11 @@ def create_action_extraction_workflow(
         CompiledActionExtractionGraph,
         builder.compile(
             checkpointer=checkpointer,
-            interrupt_before=(
-                [WorkflowNode.WAIT_FOR_APPROVAL.value]
-                if checkpointer is not None
-                else None
-            ),
             name="snapflow_action_extraction",
         ),
     )
     return ActionExtractionWorkflow(
         graph=graph,
         clarification_resolver=clarification_resolver,
+        approval_resolver=approval_resolver,
     )

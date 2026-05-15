@@ -1,7 +1,5 @@
-import type { ActionPlanRequest, ActionPlanResponse } from "./action-plan-client";
 import type { RunView } from "../../lib/api/generated/types.gen";
-
-type ActionPlanContext = Pick<ActionPlanRequest, "reference_date">;
+import type { ActionPlanResponse } from "./action-plan-client";
 
 export type WorkflowState =
   | Readonly<{ status: "review" }>
@@ -17,7 +15,14 @@ export type WorkflowState =
   | Readonly<{
       status: "ready";
       plan: ActionPlanResponse;
-      request: ActionPlanContext;
+      run: RunView;
+      referenceDate: string;
+    }>
+  | Readonly<{
+      status: "approved";
+      plan: ActionPlanResponse;
+      run: RunView;
+      referenceDate: string;
     }>;
 
 export type WorkflowAction =
@@ -25,7 +30,14 @@ export type WorkflowAction =
   | Readonly<{
       type: "receive-plan";
       plan: ActionPlanResponse;
-      request: ActionPlanContext;
+      run: RunView;
+      referenceDate: string;
+    }>
+  | Readonly<{
+      type: "receive-approval";
+      plan: ActionPlanResponse;
+      run: RunView;
+      referenceDate: string;
     }>
   | Readonly<{ type: "fail-plan"; message: string }>
   | Readonly<{
@@ -47,7 +59,19 @@ export function workflowReducer(
     case "request-plan":
       return { status: "loading" };
     case "receive-plan":
-      return { status: "ready", plan: action.plan, request: action.request };
+      return {
+        status: "ready",
+        plan: action.plan,
+        run: action.run,
+        referenceDate: action.referenceDate,
+      };
+    case "receive-approval":
+      return {
+        status: "approved",
+        plan: action.plan,
+        run: action.run,
+        referenceDate: action.referenceDate,
+      };
     case "fail-plan":
       return { status: "error", message: action.message };
     case "receive-clarification":

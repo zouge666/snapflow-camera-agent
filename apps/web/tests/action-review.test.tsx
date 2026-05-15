@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { CandidateAction } from "../features/workflow/action-plan-client";
 import {
   actionReviewReducer,
+  createApprovalDecisions,
   createActionReviewState,
   getActionAuditDiff,
   selectApprovedActions,
@@ -13,7 +14,7 @@ import {
 } from "../features/workflow/action-review";
 import {
   ActionReviewBoardView,
-  initialIcsDownloadState,
+  initialApprovalSubmitState,
 } from "../features/workflow/action-review-board";
 
 const candidates: readonly CandidateAction[] = [
@@ -238,6 +239,44 @@ describe("action review domain", () => {
       pending: 0,
     });
     expect(selectApprovedActions(state)).toEqual([]);
+    expect(createApprovalDecisions(state)).toEqual([
+      { action_id: "action-1", decision: "reject", reviewed: null },
+      { action_id: "action-2", decision: "reject", reviewed: null },
+      { action_id: "action-3", decision: "reject", reviewed: null },
+    ]);
+  });
+
+  it("builds a complete server request and sends reviewed fields only for edits", () => {
+    const state = apply(
+      createActionReviewState(candidates),
+      { type: "decide", id: "action-1", decision: "approved" },
+      { type: "start-edit", id: "action-2" },
+      {
+        type: "change-text-field",
+        id: "action-2",
+        field: "dueDate",
+        value: "2026-01-21",
+      },
+      { type: "save-edit", id: "action-2" },
+      { type: "decide", id: "action-2", decision: "approved" },
+      { type: "decide", id: "action-3", decision: "rejected" },
+    );
+
+    expect(createApprovalDecisions(state)).toEqual([
+      { action_id: "action-1", decision: "approve", reviewed: null },
+      {
+        action_id: "action-2",
+        decision: "approve",
+        reviewed: {
+          title: "Prepare the support FAQ",
+          owner: null,
+          due_date: "2026-01-21",
+          priority: "unknown",
+        },
+      },
+      { action_id: "action-3", decision: "reject", reviewed: null },
+    ]);
+    expect(createApprovalDecisions(createActionReviewState(candidates))).toEqual([]);
   });
 });
 
@@ -246,9 +285,9 @@ describe("action review interface", () => {
     const markup = renderToStaticMarkup(
       <ActionReviewBoardView
         state={createActionReviewState(candidates)}
-        exportState={initialIcsDownloadState}
+        approvalState={initialApprovalSubmitState}
         onAction={() => undefined}
-        onDownload={() => undefined}
+        onSubmit={() => undefined}
       />,
     );
 
@@ -257,8 +296,8 @@ describe("action review interface", () => {
     expect(markup.match(/Pending review/g)).toHaveLength(3);
     expect(markup).toContain("0 approved");
     expect(markup).toContain("Nothing is approved by default.");
-    expect(markup).toContain("local demo API only");
-    expect(markup).toContain("Download approved .ics");
+    expect(markup).toContain("Every candidate needs an explicit decision");
+    expect(markup).toContain("Submit decisions to server");
     expect(markup).toContain("disabled");
     expect(markup).not.toContain("Approve all");
   });
@@ -285,9 +324,9 @@ describe("action review interface", () => {
     const markup = renderToStaticMarkup(
       <ActionReviewBoardView
         state={edited}
-        exportState={initialIcsDownloadState}
+        approvalState={initialApprovalSubmitState}
         onAction={() => undefined}
-        onDownload={() => undefined}
+        onSubmit={() => undefined}
       />,
     );
 
@@ -300,6 +339,6 @@ describe("action review interface", () => {
     expect(markup).toContain("Prepare the support FAQ before the pilot review.");
     expect(markup).toContain("Source characters 111–159");
     expect(markup).toContain("1 approved");
-    expect(markup).toContain("<dt>Calendar-ready</dt><dd>1</dd>");
+    expect(markup).toContain("<dt>Approved</dt><dd>1</dd>");
   });
 });

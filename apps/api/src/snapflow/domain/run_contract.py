@@ -1,5 +1,7 @@
 """Versioned public contract for the durable SnapFlow run workflow."""
 
+from __future__ import annotations
+
 from datetime import date
 from enum import StrEnum
 from typing import Annotated, Literal, Self
@@ -231,6 +233,7 @@ class RunView(RunContractModel):
     status: RunStatus
     candidate_items: tuple[ActionItem, ...]
     clarification_questions: tuple[ClarificationQuestion, ...]
+    approval_decisions: tuple[ApprovalDecisionView, ...]
     clarification_count: int = Field(ge=0, le=2)
     safe_trace: tuple[SafeTraceEvent, ...]
     created_at: AwareDatetime
@@ -241,6 +244,17 @@ class RunView(RunContractModel):
         """Reject snapshots with an impossible retention window."""
         if self.expires_at <= self.created_at:
             message = "expires_at must be later than created_at"
+            raise ValueError(message)
+        candidate_ids = {item.id for item in self.candidate_items}
+        decision_ids = {item.action_id for item in self.approval_decisions}
+        if self.status is RunStatus.APPROVAL_RECEIVED:
+            if decision_ids != candidate_ids or len(decision_ids) != len(
+                self.approval_decisions
+            ):
+                message = "approval decisions must exactly match candidate items"
+                raise ValueError(message)
+        elif self.approval_decisions:
+            message = "approval decisions are only available after server approval"
             raise ValueError(message)
         return self
 
@@ -324,6 +338,28 @@ class ReviewedActionFields(RunContractModel):
     due_date: date | None
     priority: ActionPriority
 
+    @field_validator("title")
+    @classmethod
+    def title_must_contain_content(cls, value: str) -> str:
+        """Normalize harmless outer whitespace and reject blank edits."""
+        normalized = value.strip()
+        if not normalized:
+            message = "reviewed title must contain non-whitespace text"
+            raise ValueError(message)
+        return normalized
+
+    @field_validator("owner")
+    @classmethod
+    def owner_must_contain_content(cls, value: str | None) -> str | None:
+        """Keep an absent owner distinct from a whitespace-only owner."""
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            message = "reviewed owner must contain non-whitespace text"
+            raise ValueError(message)
+        return normalized
+
 
 class ApprovalDecisionInput(RunContractModel):
     """One explicit approval or rejection, with optional reviewed fields."""
@@ -345,7 +381,7 @@ class ApprovalRequest(RunContractModel):
     """A complete set of per-item decisions for one approval interrupt."""
 
     schema_version: SchemaVersion
-    decisions: tuple[ApprovalDecisionInput, ...] = Field(min_length=1)
+    decisions: tuple[ApprovalDecisionInput, ...]
 
     @field_validator("decisions")
     @classmethod
@@ -359,6 +395,23 @@ class ApprovalRequest(RunContractModel):
             message = "approval decisions must target distinct action IDs"
             raise ValueError(message)
         return decisions
+
+
+class ApprovalAuditChange(RunContractModel):
+    """One server-computed field change retained for human review."""
+
+    field: Literal["title", "owner", "due_date", "priority"]
+    before: str | None
+    after: str | None
+
+
+class ApprovalDecisionView(RunContractModel):
+    """One accepted decision and its server-computed reviewed snapshot."""
+
+    action_id: EntityId
+    decision: ActionDecision
+    reviewed: ReviewedActionFields | None
+    audit_diff: tuple[ApprovalAuditChange, ...]
 
 
 class ExportRequest(RunContractModel):
